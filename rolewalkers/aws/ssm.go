@@ -108,3 +108,41 @@ func (sm *SSMManager) GetDatabaseEndpoint(env, nodeType, dbType string) (string,
 	paramPath := fmt.Sprintf("/%s/zenith/database/%s/db-%s-endpoint", env, dbType, nodeType)
 	return sm.GetParameter(paramPath)
 }
+
+// ssmListResponse represents the AWS SSM get-parameters-by-path response
+type ssmListResponse struct {
+	Parameters []struct {
+		Name string `json:"Name"`
+		Type string `json:"Type"`
+	} `json:"Parameters"`
+}
+
+// ListParameters lists all parameters under a given path prefix
+func (sm *SSMManager) ListParameters(prefix string) ([]string, error) {
+	cmd := exec.Command("aws", "ssm", "get-parameters-by-path",
+		"--path", prefix,
+		"--recursive",
+		"--region", sm.region,
+	)
+
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to list SSM parameters at %s: %s", prefix, stderr.String())
+	}
+
+	var resp ssmListResponse
+	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse SSM response: %w", err)
+	}
+
+	names := make([]string, len(resp.Parameters))
+	for i, p := range resp.Parameters {
+		names[i] = p.Name
+	}
+
+	return names, nil
+}

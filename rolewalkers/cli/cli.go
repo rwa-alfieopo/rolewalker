@@ -1,21 +1,32 @@
 package cli
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"rolewalkers/aws"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
 // CLI handles command-line operations
 type CLI struct {
-	configManager   *aws.ConfigManager
-	ssoManager      *aws.SSOManager
-	profileSwitcher *aws.ProfileSwitcher
-	kubeManager     *aws.KubeManager
-	tunnelManager   *aws.TunnelManager
+	configManager       *aws.ConfigManager
+	ssoManager          *aws.SSOManager
+	profileSwitcher     *aws.ProfileSwitcher
+	kubeManager         *aws.KubeManager
+	tunnelManager       *aws.TunnelManager
+	ssmManager          *aws.SSMManager
+	grpcManager         *aws.GRPCManager
+	dbManager           *aws.DatabaseManager
+	redisManager        *aws.RedisManager
+	mskManager          *aws.MSKManager
+	maintenanceManager  *aws.MaintenanceManager
+	scalingManager      *aws.ScalingManager
+	replicationManager  *aws.ReplicationManager
 }
 
 // NewCLI creates a new CLI instance
@@ -42,12 +53,29 @@ func NewCLI() (*CLI, error) {
 		return nil, err
 	}
 
+	ssm := aws.NewSSMManager()
+	grpc := aws.NewGRPCManager()
+	dbMgr := aws.NewDatabaseManager()
+	redisMgr := aws.NewRedisManager()
+	mskMgr := aws.NewMSKManager()
+	maintMgr := aws.NewMaintenanceManager()
+	scaleMgr := aws.NewScalingManager()
+	replMgr := aws.NewReplicationManager()
+
 	return &CLI{
-		configManager:   cm,
-		ssoManager:      sm,
-		profileSwitcher: ps,
-		kubeManager:     km,
-		tunnelManager:   tm,
+		configManager:       cm,
+		ssoManager:         sm,
+		profileSwitcher:    ps,
+		kubeManager:        km,
+		tunnelManager:      tm,
+		ssmManager:         ssm,
+		grpcManager:        grpc,
+		dbManager:          dbMgr,
+		redisManager:       redisMgr,
+		mskManager:         mskMgr,
+		maintenanceManager: maintMgr,
+		scalingManager:     scaleMgr,
+		replicationManager: replMgr,
 	}, nil
 }
 
@@ -97,12 +125,30 @@ func (c *CLI) Run(args []string) error {
 		return c.current()
 	case "kube", "k8s":
 		return c.kube(cmdArgs)
+	case "db":
+		return c.db(cmdArgs)
 	case "tunnel":
 		return c.tunnel(cmdArgs)
 	case "port":
 		return c.port(cmdArgs)
+	case "grpc":
+		return c.grpc(cmdArgs)
+	case "redis":
+		return c.redis(cmdArgs)
+	case "msk":
+		return c.msk(cmdArgs)
+	case "maintenance":
+		return c.maintenance(cmdArgs)
+	case "scale":
+		return c.scale(cmdArgs)
+	case "replication":
+		return c.replication(cmdArgs)
 	case "gui", "--gui":
 		return c.launchGUI()
+	case "keygen":
+		return c.keygen(cmdArgs)
+	case "ssm":
+		return c.ssm(cmdArgs)
 	case "help", "--help", "-h":
 		return c.showHelp()
 	default:
@@ -127,14 +173,52 @@ Commands:
   kube list             List available kubectl contexts
   port <svc> <env>      Get local port for a service/env
   port --list           List all port mappings
+  db connect <env>      Connect to database via interactive psql
+    --write             Connect to write node (default: read)
+    --command           Connect to command database (default: query)
+  db backup <env>       Backup database to local file
+    --output, -o <file> Output file path (required)
+    --schema-only       Backup schema only, no data
+  db restore <env>      Restore database from local file
+    --input, -i <file>  Input file path (required)
+    --clean             Drop objects before recreating
+    --yes, -y           Skip confirmation prompt
+  redis connect <env>   Connect to Redis cluster via interactive redis-cli
+  msk ui <env>          Start Kafka UI for MSK cluster
+    --port <port>       Local port (default: 8080)
+  msk stop <env>        Stop the Kafka UI pod
+  maintenance <env> --type <type> --enable|--disable
+                        Toggle Fastly maintenance mode
+  maintenance status <env>
+                        Check maintenance mode status
+  scale <env> --preset <preset>
+                        Scale all HPAs using a preset
+  scale <env> --service <svc> --min <n> --max <n>
+                        Scale a specific service's HPA
+  scale list <env>      List HPAs and current scaling
+  replication status <env>
+                        Show Blue-Green deployment status
+  replication switch <id> [--yes]
+                        Switchover a Blue-Green deployment
+  replication create <env> --name <name> --source <cluster>
+                        Create a new Blue-Green deployment
+  replication delete <id> [--delete-target] [--yes]
+                        Delete a Blue-Green deployment
   tunnel start <svc> <env>  Start a tunnel to a service
   tunnel stop <svc> <env>   Stop a specific tunnel
   tunnel stop --all         Stop all tunnels
   tunnel list               List active tunnels
+  grpc <service> <env>  Port-forward to a gRPC microservice
+  grpc list             List available gRPC services
+  ssm get <path>        Get SSM parameter value
+    --decrypt           Decrypt SecureString (default: enabled)
+  ssm list <prefix>     List parameters under a path prefix
+  keygen [count]        Generate cryptographically secure API keys
   gui, --gui            Launch the GUI application
   help                  Show this help message
 
 Tunnel Services: db, redis, elasticsearch, kafka, msk, rabbitmq, grpc
+gRPC Services: candidate, job, client, organisation, user, email, billing, core
 
 Examples:
   rwcli list                     # List all profiles
@@ -143,9 +227,37 @@ Examples:
   rwcli login my-sso-profile     # Login via SSO
   rwcli kube dev                 # Switch only k8s context
   rwcli port db dev              # Get database port for dev
+  rwcli db connect dev           # Connect to dev query database (read node)
+  rwcli db connect prod --write  # Connect to prod write node
+  rwcli db connect prod --command # Connect to command database
+  rwcli db backup dev --output ./backup.sql
+  rwcli db backup dev --output ./schema.sql --schema-only
+  rwcli db restore dev --input ./backup.sql
+  rwcli db restore dev --input ./backup.sql --clean --yes
+  rwcli redis connect dev        # Connect to dev Redis cluster
+  rwcli redis connect prod       # Connect to prod Redis cluster
+  rwcli msk ui dev               # Start Kafka UI on localhost:8080
+  rwcli msk ui prod --port 9090  # Start Kafka UI on custom port
+  rwcli msk stop dev             # Stop the Kafka UI pod
+  rwcli maintenance dev --type api --enable   # Enable API maintenance
+  rwcli maintenance prod --type all --disable # Disable all maintenance
+  rwcli maintenance status dev                # Check maintenance status
+  rwcli scale preprod --preset performance    # Scale up for performance testing
+  rwcli scale prod --preset normal            # Reset to normal scaling
+  rwcli scale dev --service candidate --min 5 --max 10  # Custom scaling
+  rwcli scale list dev                        # List HPAs and scaling
+  rwcli replication status dev                # Show Blue-Green deployments
+  rwcli replication switch bgd-abc123 --yes   # Switchover deployment
+  rwcli replication create dev --name my-bg --source prod-db-cluster
+  rwcli replication delete bgd-abc123 --yes   # Delete deployment
   rwcli tunnel start db dev      # Start database tunnel to dev
   rwcli tunnel start redis prod  # Start redis tunnel to prod
   rwcli tunnel list              # Show active tunnels
+  rwcli grpc candidate dev       # Forward localhost:5001 to candidate-microservice-grpc
+  rwcli grpc job prod            # Forward localhost:5002 to job-microservice-grpc
+  rwcli grpc list                # List all gRPC services and ports
+  rwcli ssm get /dev/zenith/database/query/db-write-endpoint
+  rwcli ssm list /dev/zenith/   # List all params under prefix
   rwcli --gui                    # Open GUI
 `
 	fmt.Println(help)
@@ -353,6 +465,87 @@ func (c *CLI) launchGUI() error {
 	return nil
 }
 
+func (c *CLI) keygen(args []string) error {
+	count := 1
+	if len(args) > 0 {
+		n, err := strconv.Atoi(args[0])
+		if err != nil || n < 1 {
+			return fmt.Errorf("invalid count: %s (must be a positive integer)", args[0])
+		}
+		count = n
+	}
+
+	for i := 0; i < count; i++ {
+		bytes := make([]byte, 16)
+		if _, err := rand.Read(bytes); err != nil {
+			return fmt.Errorf("failed to generate random key: %w", err)
+		}
+		fmt.Println(hex.EncodeToString(bytes))
+	}
+
+	return nil
+}
+
+func (c *CLI) ssm(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli ssm <get|list> <path>\n\nSubcommands:\n  get <path>     Get parameter value\n  list <prefix>  List parameters under prefix\n\nExamples:\n  rwcli ssm get /dev/zenith/database/query/db-write-endpoint\n  rwcli ssm get /prod/zenith/redis/cluster-endpoint --decrypt\n  rwcli ssm list /dev/zenith/")
+	}
+
+	subCmd := args[0]
+	subArgs := args[1:]
+
+	switch subCmd {
+	case "get":
+		return c.ssmGet(subArgs)
+	case "list", "ls":
+		return c.ssmList(subArgs)
+	default:
+		return fmt.Errorf("unknown ssm subcommand: %s\nUse: get, list", subCmd)
+	}
+}
+
+func (c *CLI) ssmGet(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli ssm get <path> [--decrypt]\n\nExamples:\n  rwcli ssm get /dev/zenith/database/query/db-write-endpoint\n  rwcli ssm get /prod/zenith/redis/cluster-endpoint")
+	}
+
+	path := args[0]
+
+	// --decrypt is already the default behavior in SSMManager
+	value, err := c.ssmManager.GetParameter(path)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(value)
+	return nil
+}
+
+func (c *CLI) ssmList(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli ssm list <prefix>\n\nExamples:\n  rwcli ssm list /dev/zenith/\n  rwcli ssm list /prod/zenith/database/")
+	}
+
+	prefix := args[0]
+
+	params, err := c.ssmManager.ListParameters(prefix)
+	if err != nil {
+		return err
+	}
+
+	if len(params) == 0 {
+		fmt.Printf("No parameters found under: %s\n", prefix)
+		return nil
+	}
+
+	fmt.Printf("Parameters under %s:\n", prefix)
+	for _, p := range params {
+		fmt.Printf("  %s\n", p)
+	}
+
+	return nil
+}
+
 func (c *CLI) port(args []string) error {
 	portConfig := aws.NewPortConfig()
 
@@ -493,6 +686,441 @@ func (c *CLI) tunnelStop(args []string) error {
 	env := args[1]
 
 	return c.tunnelManager.Stop(service, env)
+}
+
+func (c *CLI) grpc(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli grpc <service> <env>\n       rwcli grpc list\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage",
+			c.grpcManager.GetServices())
+	}
+
+	// Handle list subcommand
+	if args[0] == "list" || args[0] == "ls" {
+		fmt.Print(c.grpcManager.ListServices())
+		return nil
+	}
+
+	// Require service and environment
+	if len(args) < 2 {
+		return fmt.Errorf("usage: rwcli grpc <service> <env>\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage",
+			c.grpcManager.GetServices())
+	}
+
+	service := args[0]
+	env := args[1]
+
+	return c.grpcManager.Forward(service, env)
+}
+
+func (c *CLI) redis(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli redis connect <env>\n\nSubcommands:\n  connect <env>  Connect to Redis cluster via interactive redis-cli\n\nExamples:\n  rwcli redis connect dev   # Connect to dev Redis cluster\n  rwcli redis connect prod  # Connect to prod Redis cluster")
+	}
+
+	subCmd := args[0]
+	subArgs := args[1:]
+
+	switch subCmd {
+	case "connect":
+		return c.redisConnect(subArgs)
+	default:
+		return fmt.Errorf("unknown redis subcommand: %s\nUse: connect", subCmd)
+	}
+}
+
+func (c *CLI) redisConnect(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli redis connect <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+	}
+
+	env := args[0]
+	return c.redisManager.Connect(env)
+}
+
+func (c *CLI) msk(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli msk <ui|stop> <env>\n\nSubcommands:\n  ui <env>    Start Kafka UI for MSK cluster\n  stop <env>  Stop the Kafka UI pod\n\nExamples:\n  rwcli msk ui dev              # Start Kafka UI on localhost:8080\n  rwcli msk ui prod --port 9090 # Start on custom port\n  rwcli msk stop dev            # Stop the Kafka UI pod")
+	}
+
+	subCmd := args[0]
+	subArgs := args[1:]
+
+	switch subCmd {
+	case "ui":
+		return c.mskUI(subArgs)
+	case "stop":
+		return c.mskStop(subArgs)
+	default:
+		return fmt.Errorf("unknown msk subcommand: %s\nUse: ui, stop", subCmd)
+	}
+}
+
+func (c *CLI) mskUI(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli msk ui <env> [--port <port>]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+	}
+
+	env := ""
+	port := 8080
+
+	// Parse arguments
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--port", "-p":
+			if i+1 < len(args) {
+				i++
+				p, err := strconv.Atoi(args[i])
+				if err != nil || p < 1 || p > 65535 {
+					return fmt.Errorf("invalid port: %s", args[i])
+				}
+				port = p
+			} else {
+				return fmt.Errorf("--port requires a value")
+			}
+		default:
+			if !strings.HasPrefix(args[i], "-") {
+				env = args[i]
+			}
+		}
+	}
+
+	if env == "" {
+		return fmt.Errorf("environment is required\n\nUsage: rwcli msk ui <env> [--port <port>]")
+	}
+
+	return c.mskManager.StartUI(env, port)
+}
+
+func (c *CLI) mskStop(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli msk stop <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+	}
+
+	env := args[0]
+	return c.mskManager.StopUI(env)
+}
+
+func (c *CLI) maintenance(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli maintenance <env> --type <api|pwa|all> --enable|--disable\n       rwcli maintenance status <env>\n\nSubcommands:\n  <env> --type <type> --enable   Enable maintenance mode\n  <env> --type <type> --disable  Disable maintenance mode\n  status <env>                   Check current maintenance status\n\nTypes: api, pwa, all\nEnvironments: snd, dev, sit, preprod, trg, prod\n\nRequires: FASTLY_API_TOKEN environment variable")
+	}
+
+	// Handle status subcommand
+	if args[0] == "status" {
+		return c.maintenanceStatus(args[1:])
+	}
+
+	// Parse toggle command
+	return c.maintenanceToggle(args)
+}
+
+func (c *CLI) maintenanceStatus(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli maintenance status <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod")
+	}
+
+	env := args[0]
+	statuses, err := c.maintenanceManager.Status(env)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Maintenance Mode Status for %s:\n", env)
+	fmt.Println(strings.Repeat("-", 50))
+
+	for _, s := range statuses {
+		status := "✗ Disabled"
+		if s.Enabled {
+			status = "✓ Enabled"
+		}
+		if s.Error != "" {
+			status = fmt.Sprintf("⚠ Error: %s", s.Error)
+		}
+
+		fmt.Printf("  %s (%s): %s\n", strings.ToUpper(s.ServiceType), s.ServiceName, status)
+	}
+
+	return nil
+}
+
+func (c *CLI) maintenanceToggle(args []string) error {
+	env := ""
+	serviceType := ""
+	enable := false
+	disable := false
+
+	// Parse arguments
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--type", "-t":
+			if i+1 < len(args) {
+				i++
+				serviceType = args[i]
+			} else {
+				return fmt.Errorf("--type requires a value (api, pwa, all)")
+			}
+		case "--enable":
+			enable = true
+		case "--disable":
+			disable = true
+		default:
+			if !strings.HasPrefix(args[i], "-") {
+				env = args[i]
+			}
+		}
+	}
+
+	if env == "" {
+		return fmt.Errorf("environment is required\n\nUsage: rwcli maintenance <env> --type <api|pwa|all> --enable|--disable")
+	}
+
+	if serviceType == "" {
+		return fmt.Errorf("--type is required (api, pwa, all)")
+	}
+
+	if !enable && !disable {
+		return fmt.Errorf("either --enable or --disable is required")
+	}
+
+	if enable && disable {
+		return fmt.Errorf("cannot use both --enable and --disable")
+	}
+
+	return c.maintenanceManager.Toggle(env, serviceType, enable)
+}
+
+func (c *CLI) scale(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli scale <env> --preset <preset>\n       rwcli scale <env> --service <svc> --min <n> --max <n>\n       rwcli scale list <env>\n\nPresets: normal (2/10), performance (10/50), minimal (1/3)\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage\n\nExamples:\n  rwcli scale preprod --preset performance\n  rwcli scale prod --preset normal\n  rwcli scale dev --service candidate --min 5 --max 10\n  rwcli scale list dev")
+	}
+
+	// Handle list subcommand
+	if args[0] == "list" || args[0] == "ls" {
+		return c.scaleList(args[1:])
+	}
+
+	// Parse arguments
+	env := ""
+	preset := ""
+	service := ""
+	minReplicas := -1
+	maxReplicas := -1
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--preset", "-p":
+			if i+1 < len(args) {
+				i++
+				preset = args[i]
+			} else {
+				return fmt.Errorf("--preset requires a value")
+			}
+		case "--service", "-s":
+			if i+1 < len(args) {
+				i++
+				service = args[i]
+			} else {
+				return fmt.Errorf("--service requires a value")
+			}
+		case "--min":
+			if i+1 < len(args) {
+				i++
+				n, err := strconv.Atoi(args[i])
+				if err != nil || n < 0 {
+					return fmt.Errorf("invalid --min value: %s", args[i])
+				}
+				minReplicas = n
+			} else {
+				return fmt.Errorf("--min requires a value")
+			}
+		case "--max":
+			if i+1 < len(args) {
+				i++
+				n, err := strconv.Atoi(args[i])
+				if err != nil || n < 0 {
+					return fmt.Errorf("invalid --max value: %s", args[i])
+				}
+				maxReplicas = n
+			} else {
+				return fmt.Errorf("--max requires a value")
+			}
+		default:
+			if !strings.HasPrefix(args[i], "-") {
+				env = args[i]
+			}
+		}
+	}
+
+	if env == "" {
+		return fmt.Errorf("environment is required")
+	}
+
+	// Determine which scaling mode to use
+	if preset != "" {
+		// Preset mode - scale all HPAs
+		return c.scalingManager.Scale(env, preset)
+	}
+
+	if service != "" {
+		// Service mode - scale specific HPA
+		if minReplicas < 0 || maxReplicas < 0 {
+			return fmt.Errorf("--min and --max are required when using --service")
+		}
+		return c.scalingManager.ScaleService(env, service, minReplicas, maxReplicas)
+	}
+
+	return fmt.Errorf("either --preset or --service with --min/--max is required")
+}
+
+func (c *CLI) scaleList(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli scale list <env>")
+	}
+
+	env := args[0]
+	output, err := c.scalingManager.ListHPAs(env)
+	if err != nil {
+		return err
+	}
+
+	fmt.Print(output)
+	return nil
+}
+
+func (c *CLI) db(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli db <connect|backup|restore> <env> [options]\n\nSubcommands:\n  connect <env>  Connect to database via interactive psql\n  backup <env>   Backup database to local file\n  restore <env>  Restore database from local file\n\nConnect flags:\n  --write, -w    Connect to write node (default: read)\n  --command, -c  Connect to command database (default: query)\n\nBackup flags:\n  --output, -o <file>  Output file path (required)\n  --schema-only        Backup schema only, no data\n\nRestore flags:\n  --input, -i <file>   Input file path (required)\n  --clean              Drop objects before recreating\n  --yes, -y            Skip confirmation prompt\n\nExamples:\n  rwcli db connect dev              # Connect to dev query database (read node)\n  rwcli db connect prod --write     # Connect to prod write node\n  rwcli db backup dev --output ./backup.sql\n  rwcli db backup dev --output ./schema.sql --schema-only\n  rwcli db restore dev --input ./backup.sql\n  rwcli db restore dev --input ./backup.sql --clean --yes")
+	}
+
+	subCmd := args[0]
+	subArgs := args[1:]
+
+	switch subCmd {
+	case "connect":
+		return c.dbConnect(subArgs)
+	case "backup":
+		return c.dbBackup(subArgs)
+	case "restore":
+		return c.dbRestore(subArgs)
+	default:
+		return fmt.Errorf("unknown db subcommand: %s\nUse: connect, backup, restore", subCmd)
+	}
+}
+
+func (c *CLI) dbConnect(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli db connect <env> [--write] [--command]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+	}
+
+	config := aws.DatabaseConfig{
+		NodeType: "read",
+		DBType:   "query",
+	}
+
+	// Parse arguments
+	for _, arg := range args {
+		switch arg {
+		case "--write", "-w":
+			config.NodeType = "write"
+		case "--command", "-c":
+			config.DBType = "command"
+		default:
+			if !strings.HasPrefix(arg, "-") {
+				config.Environment = arg
+			}
+		}
+	}
+
+	if config.Environment == "" {
+		return fmt.Errorf("environment is required\n\nUsage: rwcli db connect <env> [--write] [--command]")
+	}
+
+	return c.dbManager.Connect(config)
+}
+
+func (c *CLI) dbBackup(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli db backup <env> --output <file> [--schema-only]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+	}
+
+	config := aws.BackupConfig{}
+
+	// Parse arguments
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--output", "-o":
+			if i+1 < len(args) {
+				i++
+				config.OutputFile = args[i]
+			} else {
+				return fmt.Errorf("--output requires a file path")
+			}
+		case "--schema-only":
+			config.SchemaOnly = true
+		default:
+			if !strings.HasPrefix(args[i], "-") {
+				config.Environment = args[i]
+			}
+		}
+	}
+
+	if config.Environment == "" {
+		return fmt.Errorf("environment is required\n\nUsage: rwcli db backup <env> --output <file>")
+	}
+
+	if config.OutputFile == "" {
+		return fmt.Errorf("--output is required\n\nUsage: rwcli db backup <env> --output <file>")
+	}
+
+	return c.dbManager.Backup(config)
+}
+
+func (c *CLI) dbRestore(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli db restore <env> --input <file> [--clean] [--yes]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+	}
+
+	config := aws.RestoreConfig{}
+	skipConfirm := false
+
+	// Parse arguments
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--input", "-i":
+			if i+1 < len(args) {
+				i++
+				config.InputFile = args[i]
+			} else {
+				return fmt.Errorf("--input requires a file path")
+			}
+		case "--clean":
+			config.Clean = true
+		case "--yes", "-y":
+			skipConfirm = true
+		default:
+			if !strings.HasPrefix(args[i], "-") {
+				config.Environment = args[i]
+			}
+		}
+	}
+
+	if config.Environment == "" {
+		return fmt.Errorf("environment is required\n\nUsage: rwcli db restore <env> --input <file>")
+	}
+
+	if config.InputFile == "" {
+		return fmt.Errorf("--input is required\n\nUsage: rwcli db restore <env> --input <file>")
+	}
+
+	// Confirmation prompt for restore operations
+	if !skipConfirm {
+		if !aws.ConfirmRestore(config.Environment, config.InputFile) {
+			fmt.Println("Restore cancelled.")
+			return nil
+		}
+	}
+
+	return c.dbManager.Restore(config)
 }
 
 func (c *CLI) initShell(args []string) error {
@@ -723,6 +1351,172 @@ compdef _rw rw
 	fmt.Println("  rw <profile-name>")
 
 	return nil
+}
+
+func (c *CLI) replication(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli replication <status|switch|create|delete> [options]\n\nSubcommands:\n  status <env>           Show Blue-Green deployment status\n  switch <id> [--yes]    Switchover a deployment\n  create <env> --name <name> --source <cluster>\n                         Create a new Blue-Green deployment\n  delete <id> [--delete-target] [--yes]\n                         Delete a Blue-Green deployment\n\nExamples:\n  rwcli replication status dev\n  rwcli replication switch bgd-abc123\n  rwcli replication create dev --name my-bg --source prod-db-cluster\n  rwcli replication delete bgd-abc123 --yes")
+	}
+
+	subCmd := args[0]
+	subArgs := args[1:]
+
+	switch subCmd {
+	case "status":
+		return c.replicationStatus(subArgs)
+	case "switch":
+		return c.replicationSwitch(subArgs)
+	case "create":
+		return c.replicationCreate(subArgs)
+	case "delete":
+		return c.replicationDelete(subArgs)
+	default:
+		return fmt.Errorf("unknown replication subcommand: %s\nUse: status, switch, create, delete", subCmd)
+	}
+}
+
+func (c *CLI) replicationStatus(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli replication status <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+	}
+
+	env := args[0]
+	output, err := c.replicationManager.Status(env)
+	if err != nil {
+		return err
+	}
+
+	fmt.Print(output)
+	return nil
+}
+
+func (c *CLI) replicationSwitch(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli replication switch <deployment-id> [--yes]\n\nExample:\n  rwcli replication switch bgd-abc123def456")
+	}
+
+	deploymentID := ""
+	skipConfirm := false
+
+	for _, arg := range args {
+		switch arg {
+		case "--yes", "-y":
+			skipConfirm = true
+		default:
+			if !strings.HasPrefix(arg, "-") {
+				deploymentID = arg
+			}
+		}
+	}
+
+	if deploymentID == "" {
+		return fmt.Errorf("deployment identifier is required")
+	}
+
+	// Confirmation prompt
+	if !skipConfirm {
+		if !aws.ConfirmReplicationSwitch(deploymentID, "(source)", "(target)") {
+			fmt.Println("Switchover cancelled.")
+			return nil
+		}
+	}
+
+	return c.replicationManager.Switch("", deploymentID)
+}
+
+func (c *CLI) replicationCreate(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli replication create <env> --name <name> --source <cluster>\n\nExample:\n  rwcli replication create dev --name my-blue-green --source prod-db-cluster")
+	}
+
+	env := ""
+	name := ""
+	source := ""
+	skipConfirm := false
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--name", "-n":
+			if i+1 < len(args) {
+				i++
+				name = args[i]
+			} else {
+				return fmt.Errorf("--name requires a value")
+			}
+		case "--source", "-s":
+			if i+1 < len(args) {
+				i++
+				source = args[i]
+			} else {
+				return fmt.Errorf("--source requires a value")
+			}
+		case "--yes", "-y":
+			skipConfirm = true
+		default:
+			if !strings.HasPrefix(args[i], "-") {
+				env = args[i]
+			}
+		}
+	}
+
+	if env == "" {
+		return fmt.Errorf("environment is required")
+	}
+
+	if name == "" {
+		return fmt.Errorf("--name is required")
+	}
+
+	if source == "" {
+		return fmt.Errorf("--source is required")
+	}
+
+	// Confirmation prompt
+	if !skipConfirm {
+		if !aws.ConfirmReplicationCreate(name, source) {
+			fmt.Println("Creation cancelled.")
+			return nil
+		}
+	}
+
+	return c.replicationManager.Create(env, name, source)
+}
+
+func (c *CLI) replicationDelete(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli replication delete <deployment-id> [--delete-target] [--yes]\n\nExample:\n  rwcli replication delete bgd-abc123def456 --yes")
+	}
+
+	deploymentID := ""
+	deleteTarget := false
+	skipConfirm := false
+
+	for _, arg := range args {
+		switch arg {
+		case "--delete-target":
+			deleteTarget = true
+		case "--yes", "-y":
+			skipConfirm = true
+		default:
+			if !strings.HasPrefix(arg, "-") {
+				deploymentID = arg
+			}
+		}
+	}
+
+	if deploymentID == "" {
+		return fmt.Errorf("deployment identifier is required")
+	}
+
+	// Confirmation prompt
+	if !skipConfirm {
+		if !aws.ConfirmReplicationDelete(deploymentID, deleteTarget) {
+			fmt.Println("Deletion cancelled.")
+			return nil
+		}
+	}
+
+	return c.replicationManager.Delete(deploymentID, deleteTarget)
 }
 
 // RunCLI is the entry point for CLI mode

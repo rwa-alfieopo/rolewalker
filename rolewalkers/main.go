@@ -15,9 +15,9 @@ import (
 var assets embed.FS
 
 func main() {
-	// If no args or --gui flag, launch GUI
-	// Otherwise run CLI
-	if len(os.Args) == 1 || os.Args[1] == "--gui" || os.Args[1] == "gui" {
+	// If --gui flag, launch GUI
+	// Otherwise run CLI (including no args = show help)
+	if len(os.Args) > 1 && (os.Args[1] == "--gui" || os.Args[1] == "gui") {
 		runGUI()
 	} else {
 		cli.RunCLI()

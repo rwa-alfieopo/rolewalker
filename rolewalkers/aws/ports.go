@@ -100,6 +100,18 @@ func (pc *PortConfig) initMappings() {
 		"qa":      {50057},
 		"stage":   {50058},
 	}
+
+	// MSK (Kafka UI) ports
+	pc.mappings["msk"] = map[string][]int{
+		"snd":     {8080},
+		"dev":     {8081},
+		"sit":     {8082},
+		"preprod": {8083},
+		"trg":     {8084},
+		"prod":    {8085},
+		"qa":      {8086},
+		"stage":   {8087},
+	}
 }
 
 // GetPort returns the port(s) for a service and environment
@@ -139,7 +151,7 @@ func (pc *PortConfig) GetEnvironments() string {
 func (pc *PortConfig) ListAll() string {
 	var sb strings.Builder
 
-	services := []string{"db", "redis", "elasticsearch", "kafka", "rabbitmq", "grpc"}
+	services := []string{"db", "redis", "elasticsearch", "kafka", "msk", "rabbitmq", "grpc"}
 	envs := []string{"snd", "dev", "sit", "preprod", "trg", "prod", "qa", "stage"}
 
 	sb.WriteString("Port Mappings:\n")

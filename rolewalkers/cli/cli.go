@@ -14,6 +14,8 @@ type CLI struct {
 	configManager   *aws.ConfigManager
 	ssoManager      *aws.SSOManager
 	profileSwitcher *aws.ProfileSwitcher
+	kubeManager     *aws.KubeManager
+	tunnelManager   *aws.TunnelManager
 }
 
 // NewCLI creates a new CLI instance
@@ -33,10 +35,19 @@ func NewCLI() (*CLI, error) {
 		return nil, err
 	}
 
+	km := aws.NewKubeManager()
+
+	tm, err := aws.NewTunnelManager()
+	if err != nil {
+		return nil, err
+	}
+
 	return &CLI{
 		configManager:   cm,
 		ssoManager:      sm,
 		profileSwitcher: ps,
+		kubeManager:     km,
+		tunnelManager:   tm,
 	}, nil
 }
 
@@ -54,9 +65,22 @@ func (c *CLI) Run(args []string) error {
 		return c.listProfiles()
 	case "switch", "use":
 		if len(cmdArgs) < 1 {
-			return fmt.Errorf("usage: rwcli switch <profile-name>")
+			return fmt.Errorf("usage: rwcli switch <profile-name> [--kube]")
 		}
-		return c.switchProfile(cmdArgs[0])
+		// Parse --kube flag
+		withKube := false
+		profileName := ""
+		for _, arg := range cmdArgs {
+			if arg == "--kube" || arg == "-k" {
+				withKube = true
+			} else if !strings.HasPrefix(arg, "-") {
+				profileName = arg
+			}
+		}
+		if profileName == "" {
+			return fmt.Errorf("usage: rwcli switch <profile-name> [--kube]")
+		}
+		return c.switchProfile(profileName, withKube)
 	case "login":
 		if len(cmdArgs) < 1 {
 			return fmt.Errorf("usage: rwcli login <profile-name>")
@@ -71,18 +95,16 @@ func (c *CLI) Run(args []string) error {
 		return c.status()
 	case "current":
 		return c.current()
-	case "export":
-		return c.export(cmdArgs)
-	case "env":
-		return c.showEnv()
-	case "init":
-		return c.initShell(cmdArgs)
+	case "kube", "k8s":
+		return c.kube(cmdArgs)
+	case "tunnel":
+		return c.tunnel(cmdArgs)
+	case "port":
+		return c.port(cmdArgs)
 	case "gui", "--gui":
 		return c.launchGUI()
 	case "help", "--help", "-h":
 		return c.showHelp()
-	case "version", "--version", "-v":
-		return c.showVersion()
 	default:
 		return fmt.Errorf("unknown command: %s\nRun 'rwcli help' for usage", command)
 	}
@@ -96,25 +118,35 @@ Usage: rwcli <command> [arguments]
 Commands:
   list, ls              List all AWS profiles
   switch, use <profile> Switch to a profile (updates default)
+    --kube, -k          Also switch kubectl context to matching EKS cluster
   login <profile>       SSO login for a profile
   logout <profile>      SSO logout for a profile
   status                Show login status for all SSO profiles
   current               Show current active profile
-  export [shell]        Export environment variables (powershell|bash|cmd)
-  env                   Show current AWS environment variables
-  init                  Install shell integration (adds 'rw' function)
+  kube <env>            Switch kubectl context to environment
+  kube list             List available kubectl contexts
+  port <svc> <env>      Get local port for a service/env
+  port --list           List all port mappings
+  tunnel start <svc> <env>  Start a tunnel to a service
+  tunnel stop <svc> <env>   Stop a specific tunnel
+  tunnel stop --all         Stop all tunnels
+  tunnel list               List active tunnels
   gui, --gui            Launch the GUI application
   help                  Show this help message
-  version               Show version
+
+Tunnel Services: db, redis, elasticsearch, kafka, msk, rabbitmq, grpc
 
 Examples:
-  rwcli init                    # Install shell integration (run once)
-  rw zenith-dev                 # Switch profile (after init)
-  rwcli list                    # List all profiles
-  rwcli login my-sso-profile    # Login via SSO
-  rwcli --gui                   # Open GUI
-
-After running 'rwcli init', use 'rw <profile>' to switch profiles.
+  rwcli list                     # List all profiles
+  rwcli switch zenith-dev        # Switch AWS profile
+  rwcli switch zenith-dev --kube # Switch AWS profile AND k8s context
+  rwcli login my-sso-profile     # Login via SSO
+  rwcli kube dev                 # Switch only k8s context
+  rwcli port db dev              # Get database port for dev
+  rwcli tunnel start db dev      # Start database tunnel to dev
+  rwcli tunnel start redis prod  # Start redis tunnel to prod
+  rwcli tunnel list              # Show active tunnels
+  rwcli --gui                    # Open GUI
 `
 	fmt.Println(help)
 	return nil
@@ -167,12 +199,22 @@ func (c *CLI) listProfiles() error {
 	return nil
 }
 
-func (c *CLI) switchProfile(profileName string) error {
+func (c *CLI) switchProfile(profileName string, withKube bool) error {
 	if err := c.profileSwitcher.SwitchProfile(profileName); err != nil {
 		return err
 	}
 
 	fmt.Printf("✓ Switched to profile: %s\n", profileName)
+
+	// Switch kubectl context if requested
+	if withKube {
+		if err := c.kubeManager.SwitchContextForEnv(profileName); err != nil {
+			fmt.Printf("⚠ Failed to switch kubectl context: %v\n", err)
+		} else {
+			ctx, _ := c.kubeManager.GetCurrentContext()
+			fmt.Printf("✓ Switched kubectl context: %s\n", ctx)
+		}
+	}
 
 	// Show export hint
 	fmt.Println("\nTo update your current shell session, run:")
@@ -309,6 +351,148 @@ func (c *CLI) showEnv() error {
 func (c *CLI) launchGUI() error {
 	fmt.Println("Use 'rwcli' without arguments or 'rwcli gui' to launch GUI")
 	return nil
+}
+
+func (c *CLI) port(args []string) error {
+	portConfig := aws.NewPortConfig()
+
+	// Handle --list flag
+	if len(args) > 0 && (args[0] == "--list" || args[0] == "-l") {
+		fmt.Print(portConfig.ListAll())
+		return nil
+	}
+
+	// Require service and environment
+	if len(args) < 2 {
+		return fmt.Errorf("usage: rwcli port <service> <env>\n       rwcli port --list\n\nServices: %s\nEnvironments: %s",
+			portConfig.GetServices(), portConfig.GetEnvironments())
+	}
+
+	service := args[0]
+	env := args[1]
+
+	ports, err := portConfig.GetPort(service, env)
+	if err != nil {
+		return err
+	}
+
+	// Output just the port(s)
+	for i, p := range ports {
+		if i > 0 {
+			fmt.Print("/")
+		}
+		fmt.Print(p)
+	}
+	fmt.Println()
+
+	return nil
+}
+
+func (c *CLI) kube(args []string) error {
+	// Handle no args - show help
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli kube <env>\n       rwcli kube list\n\nExamples:\n  rwcli kube dev     # Switch to dev EKS cluster context\n  rwcli kube prod    # Switch to prod EKS cluster context\n  rwcli kube list    # List all available contexts")
+	}
+
+	subCmd := args[0]
+
+	// Handle list subcommand
+	if subCmd == "list" || subCmd == "ls" {
+		output, err := c.kubeManager.ListContextsFormatted()
+		if err != nil {
+			return err
+		}
+		fmt.Print(output)
+		return nil
+	}
+
+	// Handle current subcommand
+	if subCmd == "current" {
+		ctx, err := c.kubeManager.GetCurrentContext()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Current kubectl context: %s\n", ctx)
+		return nil
+	}
+
+	// Otherwise treat as environment name
+	env := subCmd
+	if err := c.kubeManager.SwitchContextForEnv(env); err != nil {
+		return err
+	}
+
+	ctx, _ := c.kubeManager.GetCurrentContext()
+	fmt.Printf("✓ Switched kubectl context: %s\n", ctx)
+	return nil
+}
+
+func (c *CLI) tunnel(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rwcli tunnel <start|stop|list> [service] [env]\n\nSubcommands:\n  start <service> <env>  Start a tunnel\n  stop <service> <env>   Stop a specific tunnel\n  stop --all             Stop all tunnels\n  list                   List active tunnels\n  cleanup                Remove stale tunnel entries\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage", aws.GetSupportedServices())
+	}
+
+	subCmd := args[0]
+	subArgs := args[1:]
+
+	switch subCmd {
+	case "start":
+		return c.tunnelStart(subArgs)
+	case "stop":
+		return c.tunnelStop(subArgs)
+	case "list", "ls":
+		fmt.Print(c.tunnelManager.List())
+		return nil
+	case "cleanup":
+		return c.tunnelManager.CleanupStale()
+	default:
+		return fmt.Errorf("unknown tunnel subcommand: %s\nUse: start, stop, list, cleanup", subCmd)
+	}
+}
+
+func (c *CLI) tunnelStart(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: rwcli tunnel start <service> <env>\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage", aws.GetSupportedServices())
+	}
+
+	service := args[0]
+	env := args[1]
+
+	// Parse optional flags for database tunnels
+	config := aws.TunnelConfig{
+		Service:     service,
+		Environment: env,
+		NodeType:    "read",
+		DBType:      "query",
+	}
+
+	// Parse additional flags
+	for i := 2; i < len(args); i++ {
+		switch args[i] {
+		case "--write", "-w":
+			config.NodeType = "write"
+		case "--command", "-c":
+			config.DBType = "command"
+		}
+	}
+
+	return c.tunnelManager.Start(config)
+}
+
+func (c *CLI) tunnelStop(args []string) error {
+	// Handle --all flag
+	if len(args) > 0 && (args[0] == "--all" || args[0] == "-a") {
+		return c.tunnelManager.StopAll()
+	}
+
+	if len(args) < 2 {
+		return fmt.Errorf("usage: rwcli tunnel stop <service> <env>\n       rwcli tunnel stop --all")
+	}
+
+	service := args[0]
+	env := args[1]
+
+	return c.tunnelManager.Stop(service, env)
 }
 
 func (c *CLI) initShell(args []string) error {

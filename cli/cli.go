@@ -77,7 +77,12 @@ func NewCLI() (*CLI, error) {
 	// Initialize config sync
 	var configSync *aws.ConfigSync
 	if dbRepo != nil {
-		configSync, _ = aws.NewConfigSync(dbRepo)
+		cs, csErr := aws.NewConfigSync(dbRepo)
+		if csErr != nil {
+			fmt.Fprintf(os.Stderr, "⚠ Config sync initialization failed: %v\n", csErr)
+		} else {
+			configSync = cs
+		}
 	}
 
 	cli := &CLI{
@@ -1534,30 +1539,11 @@ func (c *CLI) initShell(args []string) error {
 }
 
 func (c *CLI) detectShell() string {
-	// Check SHELL env var (Unix)
-	if shell := os.Getenv("SHELL"); shell != "" {
-		if strings.Contains(shell, "zsh") {
-			return "zsh"
-		}
-		if strings.Contains(shell, "bash") {
-			return "bash"
-		}
-	}
-
-	// Check PSModulePath (PowerShell indicator)
-	if os.Getenv("PSModulePath") != "" {
-		return "powershell"
-	}
-
-	// Default based on OS
-	if runtime.GOOS == "windows" {
-		return "powershell"
-	}
-
-	return "bash"
+	pm := aws.NewPromptManager()
+	return pm.DetectShell()
 }
 
-func (c *CLI) initPowerShell(homeDir string) error {
+func (c *CLI) initPowerShell(homeDir string) (err error) {
 	// PowerShell profile paths
 	profilePaths := []string{
 		filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
@@ -1575,7 +1561,9 @@ func (c *CLI) initPowerShell(homeDir string) error {
 	if profilePath == "" {
 		profilePath = profilePaths[0]
 		// Create directory if needed
-		os.MkdirAll(filepath.Dir(profilePath), 0755)
+		if err := os.MkdirAll(filepath.Dir(profilePath), 0755); err != nil {
+			return fmt.Errorf("failed to create profile directory: %w", err)
+		}
 	}
 
 	// Check if already installed
@@ -1618,7 +1606,11 @@ Register-ArgumentCompleter -CommandName rw -ParameterName profile -ScriptBlock {
 	if err != nil {
 		return fmt.Errorf("failed to open profile: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close file: %w", cerr)
+		}
+	}()
 
 	if _, err := f.WriteString(funcCode); err != nil {
 		return fmt.Errorf("failed to write to profile: %w", err)
@@ -1633,7 +1625,7 @@ Register-ArgumentCompleter -CommandName rw -ParameterName profile -ScriptBlock {
 	return nil
 }
 
-func (c *CLI) initBash(homeDir string) error {
+func (c *CLI) initBash(homeDir string) (err error) {
 	profilePath := filepath.Join(homeDir, ".bashrc")
 
 	content, _ := os.ReadFile(profilePath)
@@ -1669,7 +1661,11 @@ complete -F _rw_completions rw
 	if err != nil {
 		return fmt.Errorf("failed to open profile: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close file: %w", cerr)
+		}
+	}()
 
 	if _, err := f.WriteString(funcCode); err != nil {
 		return fmt.Errorf("failed to write to profile: %w", err)
@@ -1684,7 +1680,7 @@ complete -F _rw_completions rw
 	return nil
 }
 
-func (c *CLI) initZsh(homeDir string) error {
+func (c *CLI) initZsh(homeDir string) (err error) {
 	profilePath := filepath.Join(homeDir, ".zshrc")
 
 	content, _ := os.ReadFile(profilePath)
@@ -1720,7 +1716,11 @@ compdef _rw rw
 	if err != nil {
 		return fmt.Errorf("failed to open profile: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close file: %w", cerr)
+		}
+	}()
 
 	if _, err := f.WriteString(funcCode); err != nil {
 		return fmt.Errorf("failed to write to profile: %w", err)

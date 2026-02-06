@@ -328,7 +328,18 @@ func (s *Server) Start() error {
 	// Open browser
 	s.openBrowser(fmt.Sprintf("http://%s", addr))
 
-	return http.ListenAndServe(addr, mux)
+	return http.ListenAndServe(addr, s.securityHeaders(mux))
+}
+
+// securityHeaders adds basic security headers to all responses
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) getWebDir() string {

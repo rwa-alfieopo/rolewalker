@@ -57,11 +57,8 @@ func (rm *RedisManager) Connect(env string) error {
 	host := parseRedisHost(endpoint)
 
 	// Generate unique pod name
-	username := utils.SanitizeUsername(os.Getenv("USER"))
-	if username == "" {
-		username = utils.SanitizeUsername(os.Getenv("USERNAME"))
-	}
-	if username == "" {
+	username := utils.GetCurrentUsernamePodSafe()
+	if username == "unknown" {
 		username = "user"
 	}
 	podName := fmt.Sprintf("redis-temp-%s-%d", username, rand.Intn(10000))

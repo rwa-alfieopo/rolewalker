@@ -101,11 +101,8 @@ func (tm *TunnelManager) Start(config TunnelConfig) error {
 	}
 
 	// Generate pod name
-	username := utils.SanitizeUsername(os.Getenv("USER"))
-	if username == "" {
-		username = utils.SanitizeUsername(os.Getenv("USERNAME"))
-	}
-	if username == "" {
+	username := utils.GetCurrentUsernamePodSafe()
+	if username == "unknown" {
 		username = "user"
 	}
 	podName := fmt.Sprintf("%stunnel-%s-%d", service, username, rand.Intn(10000))

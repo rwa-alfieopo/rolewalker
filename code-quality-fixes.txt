@@ -1,0 +1,312 @@
+================================================================================
+KIRO PROMPT: Code Quality Fixes for rolewalkers CLI
+================================================================================
+
+Fix the following 10 code quality issues in the rolewalkers Go CLI project.
+Apply each fix carefully, ensure the code compiles after each change, and
+run `go vet ./...` when done. Do NOT create tests unless explicitly asked.
+
+--------------------------------------------------------------------------------
+FIX 1: Consolidate duplicated username resolution
+--------------------------------------------------------------------------------
+
+Files affected:
+  - aws/tunnel.go (~line 103-109)
+  - aws/database.go (~line 73-79)
+  - aws/redis.go (~line 59-65)
+  - internal/utils/sanitize.go (already has GetCurrentUsername)
+
+Problem:
+  All three aws/ files manually do:
+    username := utils.SanitizeUsername(os.Getenv("USER"))
+    if username == "" {
+      username = utils.SanitizeUsername(os.Getenv("USERNAME"))
+    }
+    if username == "" {
+      username = "unknown"
+    }
+
+  But internal/utils/sanitize.go already has GetCurrentUsername() that does
+  exactly this (using SanitizeLabelValue instead of SanitizeUsername, but
+  same intent).
+
+Fix:
+  1. In internal/utils/sanitize.go, add a second helper or update
+     GetCurrentUsername to also provide a pod-name-safe variant using
+     SanitizeUsername (not SanitizeLabelValue). For example, add:
+
+       func GetCurrentUsernamePodSafe() string {
+           username := SanitizeUsername(os.Getenv("USER"))
+           if username == "" {
+               username = SanitizeUsername(os.Getenv("USERNAME"))
+           }
+           if username == "" {
+               username = "unknown"
+           }
+           return username
+       }
+
+  2. Replace the duplicated blocks in aws/tunnel.go, aws/database.go, and
+     aws/redis.go with a single call:
+       username := utils.GetCurrentUsernamePodSafe()
+
+  3. Remove the now-unused os.Getenv imports if they become unused in those
+     files (check each file).
+
+--------------------------------------------------------------------------------
+FIX 2: Consolidate duplicated detectShell logic
+--------------------------------------------------------------------------------
+
+Files affected:
+  - cli/cli.go (func (c *CLI) detectShell() string) (~line 1536)
+  - aws/prompt.go (func (pm *PromptManager) DetectShell() string) (~line 37)
+
+Problem:
+  Both functions contain identical shell detection logic.
+
+Fix:
+  1. Make cli/cli.go's detectShell() delegate to the PromptManager:
+
+       func (c *CLI) detectShell() string {
+           pm := aws.NewPromptManager()
+           return pm.DetectShell()
+       }
+
+  2. Remove the duplicated os, runtime, and strings imports from cli/cli.go
+     if they become unused (they likely won't since they're used elsewhere,
+     but verify).
+
+  Alternative: If you prefer not to instantiate PromptManager, extract the
+  logic into a standalone utility function in internal/utils/ and have both
+  callers use it.
+
+--------------------------------------------------------------------------------
+FIX 3: Handle ignored error in NewCLI config sync initialization
+--------------------------------------------------------------------------------
+
+File: cli/cli.go (~line 81)
+
+Problem:
+  configSync, _ = aws.NewConfigSync(dbRepo)
+  The error is silently discarded. If config sync fails, the user gets no
+  feedback.
+
+Fix:
+  Log or print a warning when config sync initialization fails:
+
+    var configSync *aws.ConfigSync
+    if dbRepo != nil {
+        cs, err := aws.NewConfigSync(dbRepo)
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "⚠ Config sync initialization failed: %v\n", err)
+        } else {
+            configSync = cs
+        }
+    }
+
+--------------------------------------------------------------------------------
+FIX 4: Handle defer Close() errors on writable files
+--------------------------------------------------------------------------------
+
+Files affected (writable file cases only):
+  - cli/cli.go: initBash (~line 1668), initZsh (~line 1719), initPowerShell (~line 1618)
+  - aws/database.go: runPgDumpPod (~line 231)
+
+Problem:
+  `defer f.Close()` on files opened for writing ignores the Close error.
+  A failed Close can mean data wasn't flushed to disk.
+
+Fix:
+  Replace the pattern in each writable-file case. Instead of:
+
+    defer f.Close()
+
+  Use a named return and deferred error capture:
+
+    defer func() {
+        if cerr := f.Close(); cerr != nil && err == nil {
+            err = fmt.Errorf("failed to close file: %w", cerr)
+        }
+    }()
+
+  This requires the enclosing function to use named return values
+  (e.g., `func (c *CLI) initBash(homeDir string) (err error)`).
+
+  For the read-only cases (config_sync.go, profile_switcher.go, db/config.go
+  rows.Close, maintenance.go resp.Body.Close), leave them as-is — ignoring
+  Close errors on read-only resources is acceptable.
+
+--------------------------------------------------------------------------------
+FIX 5: Compile regexes at package level in sanitize.go
+--------------------------------------------------------------------------------
+
+File: internal/utils/sanitize.go
+
+Problem:
+  SanitizeUsername() and SanitizeLabelValue() both call
+  regexp.MustCompile() on every invocation. This is wasteful.
+
+Fix:
+  Move the regex compilation to package-level variables:
+
+    var (
+        reNonAlphanumDash = regexp.MustCompile(`[^a-zA-Z0-9-]`)
+        reNonLabelChar    = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+    )
+
+  Then use these in the functions:
+
+    func SanitizeUsername(username string) string {
+        result := reNonAlphanumDash.ReplaceAllString(username, "")
+        ...
+    }
+
+    func SanitizeLabelValue(value string) string {
+        ...
+        value = reNonLabelChar.ReplaceAllString(value, "-")
+        ...
+    }
+
+--------------------------------------------------------------------------------
+FIX 6: Handle os.MkdirAll error in initPowerShell
+--------------------------------------------------------------------------------
+
+File: cli/cli.go (~line 1581)
+
+Problem:
+  os.MkdirAll(filepath.Dir(profilePath), 0755) ignores the returned error.
+
+Fix:
+  Check and return the error:
+
+    if err := os.MkdirAll(filepath.Dir(profilePath), 0755); err != nil {
+        return fmt.Errorf("failed to create profile directory: %w", err)
+    }
+
+--------------------------------------------------------------------------------
+FIX 7: Add basic security headers to web server
+--------------------------------------------------------------------------------
+
+File: internal/web/server.go, in the Start() method (~line 292)
+
+Problem:
+  No security headers are set. Even for localhost, this is good hygiene.
+
+Fix:
+  Add a middleware that sets security headers. Insert it before the mux
+  handler in http.ListenAndServe:
+
+    func (s *Server) securityHeaders(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            w.Header().Set("X-Content-Type-Options", "nosniff")
+            w.Header().Set("X-Frame-Options", "DENY")
+            w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:")
+            w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+            next.ServeHTTP(w, r)
+        })
+    }
+
+  Then in Start(), change the final line from:
+    return http.ListenAndServe(addr, mux)
+  To:
+    return http.ListenAndServe(addr, s.securityHeaders(mux))
+
+--------------------------------------------------------------------------------
+FIX 8: Handle silently dropped errors in NewScalingManager
+--------------------------------------------------------------------------------
+
+File: aws/scaling.go (~line 47-55)
+
+Problem:
+  NewScalingManager() ignores errors from NewProfileSwitcher() and db.NewDB().
+  This can cause nil pointer panics or confusing failures later.
+
+Fix:
+  Change NewScalingManager to return an error:
+
+    func NewScalingManager() *ScalingManager {
+        ps, err := NewProfileSwitcher()
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "⚠ Profile switcher init failed: %v\n", err)
+        }
+        database, err := db.NewDB()
+        var repo *db.ConfigRepository
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", err)
+        } else {
+            repo = db.NewConfigRepository(database)
+        }
+        return &ScalingManager{
+            kubeManager:     NewKubeManager(),
+            profileSwitcher: ps,
+            configRepo:      repo,
+            namespace:       "zenith",
+        }
+    }
+
+  Note: If you want to make this a proper error-returning constructor
+  (func NewScalingManager() (*ScalingManager, error)), you'll need to
+  update all callers. The warning approach above is the minimal fix.
+  Check all callers of NewScalingManager() and update accordingly.
+
+--------------------------------------------------------------------------------
+FIX 9: Fix go.mod Go version
+--------------------------------------------------------------------------------
+
+File: go.mod
+
+Problem:
+  `go 1.25` is a future/unreleased Go version. This may cause build
+  failures for contributors.
+
+Fix:
+  Change to the latest stable Go version. As of early 2026, that should be
+  go 1.23 or go 1.24. Run `go version` on the build machine to confirm,
+  then update go.mod:
+
+    go 1.23
+
+  Then run `go mod tidy` to ensure consistency.
+
+  NOTE: Only apply this if `go version` confirms the local toolchain is
+  NOT 1.25. If the team is intentionally using a Go RC/beta, leave it.
+
+--------------------------------------------------------------------------------
+FIX 10: Add test file stubs for critical packages
+--------------------------------------------------------------------------------
+
+This is the lowest priority fix. Do NOT write full tests — just create
+stub test files so the project has a testing skeleton that can be expanded.
+
+Create these files with a single placeholder test each:
+
+  - aws/config_test.go
+  - aws/scaling_test.go
+  - aws/tunnel_test.go
+  - internal/utils/sanitize_test.go
+  - internal/db/config_test.go
+
+Each file should contain:
+
+    package <package_name>
+
+    import "testing"
+
+    func TestPlaceholder(t *testing.T) {
+        t.Skip("TODO: implement tests")
+    }
+
+This establishes the convention and makes `go test ./...` pass cleanly.
+
+================================================================================
+VERIFICATION
+================================================================================
+
+After applying all fixes, run:
+
+  go build ./...
+  go vet ./...
+  go test ./...
+
+All three commands should pass with zero errors.
+================================================================================

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"rolewalkers/internal/db"
 	"strings"
@@ -41,10 +42,15 @@ type HPAList struct {
 
 // NewScalingManager creates a new ScalingManager instance
 func NewScalingManager() *ScalingManager {
-	ps, _ := NewProfileSwitcher()
+	ps, err := NewProfileSwitcher()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Profile switcher init failed: %v\n", err)
+	}
 	database, err := db.NewDB()
 	var repo *db.ConfigRepository
-	if err == nil {
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", err)
+	} else {
 		repo = db.NewConfigRepository(database)
 	}
 	return &ScalingManager{

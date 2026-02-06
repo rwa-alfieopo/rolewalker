@@ -6,11 +6,16 @@ import (
 	"strings"
 )
 
+// Package-level compiled regexes (Fix 5: avoid recompiling on every call)
+var (
+	reNonAlphanumDash = regexp.MustCompile(`[^a-zA-Z0-9-]`)
+	reNonLabelChar    = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+)
+
 // SanitizeUsername removes non-alphanumeric characters from username
 // and limits length to 20 characters for use in pod names
 func SanitizeUsername(username string) string {
-	re := regexp.MustCompile(`[^a-zA-Z0-9-]`)
-	result := re.ReplaceAllString(username, "")
+	result := reNonAlphanumDash.ReplaceAllString(username, "")
 	if len(result) > 20 {
 		result = result[:20]
 	}
@@ -22,8 +27,7 @@ func SanitizeUsername(username string) string {
 func SanitizeLabelValue(value string) string {
 	// Replace @ with 'at' and other special chars with '-'
 	value = strings.ReplaceAll(value, "@", "at")
-	re := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
-	value = re.ReplaceAllString(value, "-")
+	value = reNonLabelChar.ReplaceAllString(value, "-")
 	// Trim to 63 characters max
 	if len(value) > 63 {
 		value = value[:63]
@@ -37,6 +41,19 @@ func GetCurrentUsername() string {
 	username := SanitizeLabelValue(os.Getenv("USER"))
 	if username == "" {
 		username = SanitizeLabelValue(os.Getenv("USERNAME"))
+	}
+	if username == "" {
+		username = "unknown"
+	}
+	return username
+}
+
+// GetCurrentUsernamePodSafe retrieves the current username sanitized for pod names
+// Returns "unknown" if no username is found
+func GetCurrentUsernamePodSafe() string {
+	username := SanitizeUsername(os.Getenv("USER"))
+	if username == "" {
+		username = SanitizeUsername(os.Getenv("USERNAME"))
 	}
 	if username == "" {
 		username = "unknown"

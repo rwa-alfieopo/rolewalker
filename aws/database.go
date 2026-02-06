@@ -71,11 +71,8 @@ func (dm *DatabaseManager) Connect(config DatabaseConfig) error {
 	}
 
 	// Generate unique pod name
-	username := utils.SanitizeUsername(os.Getenv("USER"))
-	if username == "" {
-		username = utils.SanitizeUsername(os.Getenv("USERNAME"))
-	}
-	if username == "" {
+	username := utils.GetCurrentUsernamePodSafe()
+	if username == "unknown" {
 		username = "user"
 	}
 	podName := fmt.Sprintf("psql-%s-%d", username, rand.Intn(10000))
@@ -193,7 +190,7 @@ func (dm *DatabaseManager) Backup(config BackupConfig) error {
 }
 
 // runPgDumpPod spawns a temporary pod to run pg_dump and captures output to file
-func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, config BackupConfig) error {
+func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, config BackupConfig) (err error) {
 	// Build labels with creator identity
 	labels := k8s.CreatorLabelsWithOperation("backup")
 
@@ -228,7 +225,11 @@ func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, conf
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer outFile.Close()
+	defer func() {
+		if cerr := outFile.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close file: %w", cerr)
+		}
+	}()
 
 	// Capture stdout to file
 	var stderr bytes.Buffer

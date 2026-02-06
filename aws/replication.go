@@ -2,6 +2,7 @@ package aws
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"rolewalkers/internal/awscli"
@@ -141,15 +142,17 @@ func (rm *ReplicationManager) Switch(env, deploymentID string) error {
 
 // monitorSwitchover monitors the switchover progress until completion
 func (rm *ReplicationManager) monitorSwitchover(deploymentID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
-	timeout := time.After(30 * time.Minute)
 	lastStatus := ""
 
 	for {
 		select {
-		case <-timeout:
+		case <-ctx.Done():
 			return fmt.Errorf("switchover timed out after 30 minutes")
 		case <-ticker.C:
 			deployment, err := rm.getDeployment(deploymentID)

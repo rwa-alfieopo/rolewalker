@@ -72,11 +72,9 @@ func (rm *RedisManager) Connect(env string) error {
 	fmt.Printf("  Port:        6379\n")
 	fmt.Printf("  User:        zenithmaster\n")
 	fmt.Printf("  Pod:         %s\n", podName)
-	fmt.Println("\nStarting interactive redis-cli session (cluster mode)...")
-	fmt.Println("(Type 'quit' or Ctrl+D to exit)")
 	fmt.Println()
 
-	return rm.runRedisPod(podName, host, password)
+	return rm.runRedisPodWithStatus(podName, host, password)
 }
 
 // parseRedisHost extracts the host from an endpoint (removes port if present)
@@ -92,17 +90,21 @@ func parseRedisHost(endpoint string) string {
 	return endpoint
 }
 
-// runRedisPod spawns an interactive redis-cli pod
-func (rm *RedisManager) runRedisPod(podName, host, password string) error {
+// runRedisPodWithStatus spawns an interactive redis-cli pod and shows status updates
+func (rm *RedisManager) runRedisPodWithStatus(podName, host, password string) error {
 	// Build labels with creator identity
 	labels := k8s.CreatorLabelsWithSession()
 
+	fmt.Println("Creating Redis CLI pod...")
+	fmt.Println("Status: Pulling image redis:7-alpine...")
+	
 	cmd := exec.Command("kubectl", "run", podName,
 		"--rm", "-it",
 		"--restart=Never",
 		"--namespace=tunnel-access",
 		"--image=redis:7-alpine",
 		"--labels", labels,
+		"--env", fmt.Sprintf("REDISCLI_AUTH=%s", password),
 		"--",
 		"redis-cli",
 		"-h", host,
@@ -111,12 +113,17 @@ func (rm *RedisManager) runRedisPod(podName, host, password string) error {
 		"--tls",        // Use TLS (required for AWS ElastiCache)
 		"--insecure",   // Skip TLS cert verification
 		"--user", "zenithmaster",
-		"--pass", password,
 	)
 
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	fmt.Println("Status: Starting container...")
+	fmt.Println("Status: Connecting to Redis cluster...")
+	fmt.Println("\nStarting interactive redis-cli session (cluster mode)...")
+	fmt.Println("(Type 'quit' or Ctrl+D to exit)")
+	fmt.Println()
 
 	err := cmd.Run()
 	if err != nil {
@@ -129,4 +136,9 @@ func (rm *RedisManager) runRedisPod(podName, host, password string) error {
 	}
 
 	return err
+}
+
+// runRedisPod spawns an interactive redis-cli pod (legacy method)
+func (rm *RedisManager) runRedisPod(podName, host, password string) error {
+	return rm.runRedisPodWithStatus(podName, host, password)
 }

@@ -126,14 +126,20 @@ func (gm *GRPCManager) startPortForward(serviceName string, localPort, remotePor
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Setup signal handling
+	// Setup signal handling with buffered channel to prevent goroutine leak
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan) // Cleanup signal notification
 
 	go func() {
-		<-sigChan
-		fmt.Println("\n\nStopping port-forward...")
-		cancel()
+		select {
+		case <-sigChan:
+			fmt.Println("\n\nStopping port-forward...")
+			cancel()
+		case <-ctx.Done():
+			// Context cancelled, exit goroutine
+			return
+		}
 	}()
 
 	cmd := exec.CommandContext(ctx, "kubectl", "port-forward",

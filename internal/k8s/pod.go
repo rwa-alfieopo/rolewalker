@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -61,13 +62,15 @@ func (pm *PodManager) GetPodStatus(podName string) (string, error) {
 
 // WaitForPodReady waits for a pod to be in Running state with timeout
 func (pm *PodManager) WaitForPodReady(podName string, timeout time.Duration) error {
-	timeoutChan := time.After(timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-timeoutChan:
+		case <-ctx.Done():
 			return fmt.Errorf("timeout waiting for pod to be ready")
 		case <-ticker.C:
 			status, err := pm.GetPodStatus(podName)

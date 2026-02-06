@@ -9,6 +9,7 @@ bin
 *.dylib
 me
 rwcli
+rwcli-*
 
 # Frontend (archived)
 frontend/
@@ -24,6 +25,9 @@ coverage.txt
 *.swp
 *.swo
 *~
+
+# Misc
+*.txt
 
 # OS
 .DS_Store

@@ -80,12 +80,12 @@ func (s *Server) Start() error {
 
 	// Serve static files
 	webDir := s.getWebDir()
-	fs := http.FileServer(http.Dir(webDir))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			r.URL.Path = "/index.html"
+			http.ServeFile(w, r, filepath.Join(webDir, "index.html"))
+			return
 		}
-		fs.ServeHTTP(w, r)
+		http.FileServer(http.Dir(webDir)).ServeHTTP(w, r)
 	})
 
 	addr := fmt.Sprintf("localhost:%d", s.port)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"rolewalkers/aws"
+	"rolewalkers/internal/utils"
 	"runtime"
 	"strconv"
 	"strings"
@@ -169,6 +170,7 @@ Commands:
   current               Show current active profile
   kube <env>            Switch kubectl context to environment
   kube list             List available kubectl contexts
+  kube set namespace    Interactively set default namespace
   port <svc> <env>      Get local port for a service/env
   port --list           List all port mappings
   db connect <env>      Connect to database via interactive psql
@@ -631,7 +633,7 @@ func (c *CLI) port(args []string) error {
 func (c *CLI) kube(args []string) error {
 	// Handle no args - show help
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli kube <env>\n       rwcli kube list\n\nExamples:\n  rwcli kube dev     # Switch to dev EKS cluster context\n  rwcli kube prod    # Switch to prod EKS cluster context\n  rwcli kube list    # List all available contexts")
+		return fmt.Errorf("usage: rwcli kube <env>\n       rwcli kube list\n       rwcli kube set namespace\n\nExamples:\n  rwcli kube dev              # Switch to dev EKS cluster context\n  rwcli kube prod             # Switch to prod EKS cluster context\n  rwcli kube list             # List all available contexts\n  rwcli kube set namespace    # Interactively set default namespace")
 	}
 
 	subCmd := args[0]
@@ -656,14 +658,113 @@ func (c *CLI) kube(args []string) error {
 		return nil
 	}
 
+	// Handle set subcommand
+	if subCmd == "set" {
+		if len(args) < 2 {
+			return fmt.Errorf("usage: rwcli kube set namespace")
+		}
+		if args[1] == "namespace" || args[1] == "ns" {
+			return c.kubeSetNamespace()
+		}
+		return fmt.Errorf("unknown set option: %s\nUse: namespace", args[1])
+	}
+
 	// Otherwise treat as environment name
 	env := subCmd
-	if err := c.kubeManager.SwitchContextForEnv(env); err != nil {
+	
+	// Get the proper AWS profile name for this environment
+	profileName := c.kubeManager.GetProfileNameForEnv(env)
+	
+	// Switch AWS profile first
+	if err := c.profileSwitcher.SwitchProfile(profileName); err != nil {
+		return fmt.Errorf("failed to switch AWS profile: %w", err)
+	}
+	
+	// Then switch kubectl context
+	if err := c.kubeManager.SwitchContextForEnvWithProfile(env, c.profileSwitcher); err != nil {
 		return err
 	}
 
-	ctx, _ := c.kubeManager.GetCurrentContext()
-	fmt.Printf("✓ Switched kubectl context: %s\n", ctx)
+	// Get current namespace
+	namespace := c.kubeManager.GetCurrentNamespace()
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// Display the full context
+	fmt.Println()
+	return c.showKubeContext(namespace)
+}
+
+func (c *CLI) kubeSetNamespace() error {
+	// Get list of namespaces
+	namespaces, err := c.kubeManager.ListNamespaces()
+	if err != nil {
+		return fmt.Errorf("failed to list namespaces: %w", err)
+	}
+
+	if len(namespaces) == 0 {
+		return fmt.Errorf("no namespaces found in current cluster")
+	}
+
+	// Interactive selection
+	selectedNS, ok := utils.SelectFromList("Available namespaces:", namespaces)
+	if !ok {
+		fmt.Println("Namespace selection cancelled.")
+		return nil
+	}
+
+	// Set the namespace
+	if err := c.kubeManager.SetNamespace(selectedNS); err != nil {
+		return fmt.Errorf("failed to set namespace: %w", err)
+	}
+
+	fmt.Println()
+	fmt.Println("✓ Namespace set successfully!")
+	fmt.Println()
+
+	// Display confirmation with full context
+	return c.showKubeContext(selectedNS)
+}
+
+func (c *CLI) showKubeContext(namespace string) error {
+	activeProfile := c.configManager.GetActiveProfile()
+	region := c.profileSwitcher.GetDefaultRegion()
+	
+	fmt.Println("Current Context:")
+	fmt.Println(strings.Repeat("-", 60))
+
+	// AWS Profile
+	fmt.Printf("AWS Profile:     %s\n", activeProfile)
+	if region != "" {
+		fmt.Printf("AWS Region:      %s\n", region)
+	}
+
+	// Get profile details (account ID and account name)
+	profiles, err := c.configManager.GetProfiles()
+	if err == nil {
+		for _, p := range profiles {
+			if p.Name == activeProfile && p.IsSSO {
+				fmt.Printf("Account ID:      %s\n", p.SSOAccountID)
+				accountName := c.extractAccountName(p.Name)
+				if accountName != "" {
+					fmt.Printf("Account Name:    %s\n", accountName)
+				}
+				break
+			}
+		}
+	}
+
+	// Kubernetes context
+	kubeContext, err := c.kubeManager.GetCurrentContext()
+	if err == nil && kubeContext != "" {
+		fmt.Printf("Kube Cluster:    %s\n", kubeContext)
+		fmt.Printf("Kube Namespace:  %s\n", namespace)
+	} else {
+		fmt.Printf("Kube Cluster:    (not configured)\n")
+		fmt.Printf("Kube Namespace:  (not configured)\n")
+	}
+
 	return nil
 }
 

@@ -6,19 +6,14 @@ import (
 	"os/exec"
 	"regexp"
 	"rolewalkers/internal/awscli"
+	"rolewalkers/internal/db"
 	"strings"
 )
 
-const (
-	// DefaultRegion is the default AWS region for EKS clusters
-	DefaultRegion = "eu-west-2"
-	
-	// ClusterNameSuffix is the common suffix for EKS cluster names
-	ClusterNameSuffix = "-zenith-eks-cluster"
-)
-
 // KubeManager handles Kubernetes context operations
-type KubeManager struct{}
+type KubeManager struct{
+	configRepo *db.ConfigRepository
+}
 
 // KubeContext represents a kubectl context
 type KubeContext struct {
@@ -29,7 +24,14 @@ type KubeContext struct {
 
 // NewKubeManager creates a new KubeManager instance
 func NewKubeManager() *KubeManager {
-	return &KubeManager{}
+	database, err := db.NewDB()
+	if err != nil {
+		// Fallback to empty manager if DB fails
+		return &KubeManager{configRepo: nil}
+	}
+	return &KubeManager{
+		configRepo: db.NewConfigRepository(database),
+	}
 }
 
 // GetContexts returns all available kubectl contexts
@@ -125,6 +127,44 @@ func (km *KubeManager) GetCurrentNamespace() string {
 
 	return namespace
 }
+// SetNamespace sets the namespace for the current kubectl context
+func (km *KubeManager) SetNamespace(namespace string) error {
+	if namespace == "" {
+		return fmt.Errorf("namespace cannot be empty")
+	}
+
+	cmd := exec.Command("kubectl", "config", "set-context", "--current", "--namespace="+namespace)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to set namespace: %s", stderr.String())
+	}
+
+	return nil
+}
+// ListNamespaces returns all available namespaces in the current cluster
+func (km *KubeManager) ListNamespaces() ([]string, error) {
+	cmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to list namespaces: %s", stderr.String())
+	}
+
+	output := strings.TrimSpace(out.String())
+	if output == "" {
+		return []string{}, nil
+	}
+
+	namespaces := strings.Fields(output)
+	return namespaces, nil
+}
+
+
 
 // SwitchContext switches to the specified kubectl context
 func (km *KubeManager) SwitchContext(contextName string) error {
@@ -188,7 +228,7 @@ func (km *KubeManager) UpdateKubeconfig(clusterName, region string) error {
 		return fmt.Errorf("cluster name cannot be empty")
 	}
 	if region == "" {
-		region = DefaultRegion
+		region = "eu-west-2" // Default fallback
 	}
 
 	fmt.Printf("Updating kubeconfig for cluster: %s...\n", clusterName)
@@ -221,6 +261,37 @@ func (km *KubeManager) SwitchContextForEnvWithProfile(env string, profileSwitche
 		return fmt.Errorf("environment name cannot be empty")
 	}
 
+	// Get environment config from database
+	if km.configRepo != nil {
+		envConfig, err := km.configRepo.GetEnvironment(env)
+		if err == nil {
+			// Use database configuration
+			contextName, err := km.FindContextForEnv(env)
+			if err != nil {
+				// Context not found, need to update kubeconfig from AWS
+				if profileSwitcher != nil {
+					fmt.Printf("Switching to AWS profile: %s...\n", envConfig.AWSProfile)
+					if switchErr := profileSwitcher.SwitchProfile(envConfig.AWSProfile); switchErr != nil {
+						return fmt.Errorf("failed to switch AWS profile: %w", switchErr)
+					}
+				}
+				
+				if updateErr := km.UpdateKubeconfig(envConfig.ClusterName, envConfig.Region); updateErr != nil {
+					return fmt.Errorf("context not found and failed to update kubeconfig: %w", updateErr)
+				}
+				
+				// Try to find context again after update
+				contextName, err = km.FindContextForEnv(env)
+				if err != nil {
+					return fmt.Errorf("context still not found after kubeconfig update: %w", err)
+				}
+			}
+
+			return km.SwitchContext(contextName)
+		}
+	}
+
+	// Fallback to legacy hardcoded logic
 	clusterName := km.getClusterNameForEnv(env)
 
 	// Try to find existing context
@@ -236,7 +307,7 @@ func (km *KubeManager) SwitchContextForEnvWithProfile(env string, profileSwitche
 			}
 		}
 		
-		if updateErr := km.UpdateKubeconfig(clusterName, DefaultRegion); updateErr != nil {
+		if updateErr := km.UpdateKubeconfig(clusterName, "eu-west-2"); updateErr != nil {
 			return fmt.Errorf("context not found and failed to update kubeconfig: %w", updateErr)
 		}
 		
@@ -252,13 +323,21 @@ func (km *KubeManager) SwitchContextForEnvWithProfile(env string, profileSwitche
 
 // getClusterNameForEnv returns the EKS cluster name for a given environment
 func (km *KubeManager) getClusterNameForEnv(env string) string {
-	// Direct mapping for full profile names
+	// Try database first
+	if km.configRepo != nil {
+		envConfig, err := km.configRepo.GetEnvironment(env)
+		if err == nil {
+			return envConfig.ClusterName
+		}
+	}
+
+	// Fallback to legacy hardcoded mapping
 	clusterMap := map[string]string{
-		"zenith-qa":      "qa" + ClusterNameSuffix,
-		"zenith-dev":     "dev" + ClusterNameSuffix,
-		"zenith-live":    "prod" + ClusterNameSuffix,
-		"zenith-sandbox": "snd" + ClusterNameSuffix,
-		"zenith-staging": "stage" + ClusterNameSuffix,
+		"zenith-qa":      "qa-zenith-eks-cluster",
+		"zenith-dev":     "dev-zenith-eks-cluster",
+		"zenith-live":    "prod-zenith-eks-cluster",
+		"zenith-sandbox": "snd-zenith-eks-cluster",
+		"zenith-staging": "stage-zenith-eks-cluster",
 	}
 
 	if cluster, ok := clusterMap[env]; ok {
@@ -268,7 +347,7 @@ func (km *KubeManager) getClusterNameForEnv(env string) string {
 	// Extract environment name and map to cluster prefix
 	envName := extractEnvName(env)
 	prefix := km.getClusterPrefixForEnv(envName)
-	return prefix + ClusterNameSuffix
+	return prefix + "-zenith-eks-cluster"
 }
 
 // getClusterPrefixForEnv returns the cluster prefix for a given environment name
@@ -295,14 +374,26 @@ func (km *KubeManager) getClusterPrefixForEnv(envName string) string {
 	return envName
 }
 
+// GetProfileNameForEnv returns the AWS profile name for a given environment
+func (km *KubeManager) GetProfileNameForEnv(env string) string {
+	return km.getProfileNameForEnv(env)
+}
+
 // getProfileNameForEnv returns the AWS profile name for a given environment
 func (km *KubeManager) getProfileNameForEnv(env string) string {
-	// Check if env is already a profile name
+	// Try database first
+	if km.configRepo != nil {
+		envConfig, err := km.configRepo.GetEnvironment(env)
+		if err == nil {
+			return envConfig.AWSProfile
+		}
+	}
+
+	// Fallback to legacy hardcoded mapping
 	if strings.HasPrefix(env, "zenith-") {
 		return env
 	}
 
-	// Map environment names to AWS profile names
 	envToProfile := map[string]string{
 		"qa":      "zenith-qa",
 		"dev":     "zenith-dev",
@@ -317,13 +408,11 @@ func (km *KubeManager) getProfileNameForEnv(env string) string {
 		"trg":     "zenith-trg",
 	}
 
-	// Extract env name and map to profile
 	envName := extractEnvName(env)
 	if profile, ok := envToProfile[envName]; ok {
 		return profile
 	}
 
-	// Default: prepend zenith-
 	return "zenith-" + envName
 }
 

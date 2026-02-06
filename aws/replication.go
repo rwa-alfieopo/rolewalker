@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"rolewalkers/internal/awscli"
+	"rolewalkers/internal/db"
 	"rolewalkers/internal/utils"
 	"strings"
 	"time"
@@ -13,7 +14,8 @@ import (
 
 // ReplicationManager handles RDS Blue-Green deployment operations
 type ReplicationManager struct {
-	region string
+	region     string
+	configRepo *db.ConfigRepository
 }
 
 // BlueGreenDeployment represents an RDS Blue-Green deployment
@@ -43,13 +45,29 @@ type BlueGreenDeploymentsResponse struct {
 
 // NewReplicationManager creates a new ReplicationManager instance
 func NewReplicationManager() *ReplicationManager {
+	database, err := db.NewDB()
+	var repo *db.ConfigRepository
+	if err == nil {
+		repo = db.NewConfigRepository(database)
+	}
 	return &ReplicationManager{
-		region: "eu-west-2",
+		region:     "eu-west-2",
+		configRepo: repo,
 	}
 }
 
 // ValidEnvironments returns the list of valid environments
 func (rm *ReplicationManager) ValidEnvironments() []string {
+	if rm.configRepo != nil {
+		envs, err := rm.configRepo.GetAllEnvironments()
+		if err == nil {
+			names := make([]string, len(envs))
+			for i, e := range envs {
+				names[i] = e.Name
+			}
+			return names
+		}
+	}
 	return []string{"snd", "dev", "sit", "preprod", "trg", "prod", "qa", "stage"}
 }
 

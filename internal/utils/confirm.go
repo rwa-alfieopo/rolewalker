@@ -78,3 +78,45 @@ func ConfirmReplicationDelete(deploymentName string, deleteTarget bool) bool {
 	
 	return ConfirmAction(message)
 }
+// SelectFromList prompts the user to select an item from a list
+// Returns the selected item and true, or empty string and false if cancelled
+func SelectFromList(prompt string, items []string) (string, bool) {
+	if len(items) == 0 {
+		return "", false
+	}
+
+	fmt.Println(prompt)
+	fmt.Println(strings.Repeat("-", 60))
+
+	for i, item := range items {
+		fmt.Printf("  [%d] %s\n", i+1, item)
+	}
+
+	fmt.Print("\nSelect number (or 'q' to quit): ")
+
+	reader := bufio.NewReader(os.Stdin)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return "", false
+	}
+
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	if response == "q" || response == "quit" || response == "exit" {
+		return "", false
+	}
+
+	var selection int
+	if _, err := fmt.Sscanf(response, "%d", &selection); err != nil {
+		fmt.Println("Invalid selection")
+		return "", false
+	}
+
+	if selection < 1 || selection > len(items) {
+		fmt.Println("Selection out of range")
+		return "", false
+	}
+
+	return items[selection-1], true
+}
+

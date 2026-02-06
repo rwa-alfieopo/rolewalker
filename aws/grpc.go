@@ -7,56 +7,64 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"rolewalkers/internal/db"
 	"sort"
 	"strings"
 	"syscall"
 )
 
-// GRPCPorts defines local ports for each gRPC microservice
-var GRPCPorts = map[string]int{
-	"candidate":    5001,
-	"job":          5002,
-	"client":       5003,
-	"organisation": 5004,
-	"user":         5006,
-	"email":        5007,
-	"billing":      5074,
-	"core":         5020,
-}
-
 // GRPCManager handles gRPC port-forwarding operations
 type GRPCManager struct {
 	kubeManager     *KubeManager
 	profileSwitcher *ProfileSwitcher
+	configRepo      *db.ConfigRepository
 }
 
 // NewGRPCManager creates a new GRPCManager instance
 func NewGRPCManager() *GRPCManager {
 	ps, _ := NewProfileSwitcher()
+	database, err := db.NewDB()
+	var repo *db.ConfigRepository
+	if err == nil {
+		repo = db.NewConfigRepository(database)
+	}
 	return &GRPCManager{
 		kubeManager:     NewKubeManager(),
 		profileSwitcher: ps,
+		configRepo:      repo,
 	}
 }
 
 // GetServicePort returns the local port for a gRPC service
 func (gm *GRPCManager) GetServicePort(service string) (int, error) {
 	service = strings.ToLower(service)
-	port, ok := GRPCPorts[service]
-	if !ok {
-		return 0, fmt.Errorf("unknown gRPC service: %s\nAvailable: %s", service, gm.GetServices())
+	
+	if gm.configRepo != nil {
+		microservices, err := gm.configRepo.GetGRPCMicroservices()
+		if err == nil {
+			if port, ok := microservices[service]; ok {
+				return port, nil
+			}
+		}
 	}
-	return port, nil
+	
+	return 0, fmt.Errorf("unknown gRPC service: %s\nAvailable: %s", service, gm.GetServices())
 }
 
 // GetServices returns a comma-separated list of available gRPC services
 func (gm *GRPCManager) GetServices() string {
-	services := make([]string, 0, len(GRPCPorts))
-	for s := range GRPCPorts {
-		services = append(services, s)
+	if gm.configRepo != nil {
+		microservices, err := gm.configRepo.GetGRPCMicroservices()
+		if err == nil {
+			services := make([]string, 0, len(microservices))
+			for s := range microservices {
+				services = append(services, s)
+			}
+			sort.Strings(services)
+			return strings.Join(services, ", ")
+		}
 	}
-	sort.Strings(services)
-	return strings.Join(services, ", ")
+	return "candidate, job, client, organisation, user, email, billing, core"
 }
 
 // GetServiceName returns the Kubernetes service name for a gRPC microservice
@@ -72,22 +80,28 @@ func (gm *GRPCManager) ListServices() string {
 	sb.WriteString(fmt.Sprintf("%-15s %-10s %s\n", "SERVICE", "PORT", "K8S SERVICE"))
 	sb.WriteString(strings.Repeat("-", 50) + "\n")
 
-	// Sort services for consistent output
-	services := make([]string, 0, len(GRPCPorts))
-	for s := range GRPCPorts {
-		services = append(services, s)
+	if gm.configRepo != nil {
+		microservices, err := gm.configRepo.GetGRPCMicroservices()
+		if err == nil {
+			services := make([]string, 0, len(microservices))
+			for s := range microservices {
+				services = append(services, s)
+			}
+			sort.Strings(services)
+
+			for _, service := range services {
+				port := microservices[service]
+				k8sService := gm.GetServiceName(service)
+				sb.WriteString(fmt.Sprintf("%-15s %-10d %s\n", service, port, k8sService))
+			}
+
+			sb.WriteString("\nUsage: rwcli grpc <service> <env>\n")
+			sb.WriteString("Example: rwcli grpc candidate dev\n")
+			return sb.String()
+		}
 	}
-	sort.Strings(services)
 
-	for _, service := range services {
-		port := GRPCPorts[service]
-		k8sService := gm.GetServiceName(service)
-		sb.WriteString(fmt.Sprintf("%-15s %-10d %s\n", service, port, k8sService))
-	}
-
-	sb.WriteString("\nUsage: rwcli grpc <service> <env>\n")
-	sb.WriteString("Example: rwcli grpc candidate dev\n")
-
+	sb.WriteString("Database not available. Please initialize the database.\n")
 	return sb.String()
 }
 

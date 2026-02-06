@@ -5,18 +5,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"rolewalkers/internal/awscli"
+	"rolewalkers/internal/db"
 	"strings"
 )
 
 // SSMManager handles AWS SSM parameter operations
 type SSMManager struct {
-	region string
+	region     string
+	configRepo *db.ConfigRepository
 }
 
 // NewSSMManager creates a new SSM manager
 func NewSSMManager() *SSMManager {
+	database, err := db.NewDB()
+	var repo *db.ConfigRepository
+	if err == nil {
+		repo = db.NewConfigRepository(database)
+	}
 	return &SSMManager{
-		region: "eu-west-2",
+		region:     "eu-west-2",
+		configRepo: repo,
 	}
 }
 

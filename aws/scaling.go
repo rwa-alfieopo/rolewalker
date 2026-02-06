@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"rolewalkers/internal/db"
 	"strings"
 )
 
@@ -12,6 +13,7 @@ import (
 type ScalingManager struct {
 	kubeManager     *KubeManager
 	profileSwitcher *ProfileSwitcher
+	configRepo      *db.ConfigRepository
 	namespace       string
 }
 
@@ -37,42 +39,75 @@ type HPAList struct {
 	Items []HPAInfo `json:"items"`
 }
 
-// Presets defines the available scaling presets
-var Presets = map[string]ScalingPreset{
-	"normal":      {Min: 2, Max: 10},
-	"performance": {Min: 10, Max: 50},
-	"minimal":     {Min: 1, Max: 3},
-}
-
 // NewScalingManager creates a new ScalingManager instance
 func NewScalingManager() *ScalingManager {
 	ps, _ := NewProfileSwitcher()
+	database, err := db.NewDB()
+	var repo *db.ConfigRepository
+	if err == nil {
+		repo = db.NewConfigRepository(database)
+	}
 	return &ScalingManager{
 		kubeManager:     NewKubeManager(),
 		profileSwitcher: ps,
+		configRepo:      repo,
 		namespace:       "zenith",
 	}
 }
 
 // ValidEnvironments returns the list of valid environments
 func (sm *ScalingManager) ValidEnvironments() []string {
+	if sm.configRepo != nil {
+		envs, err := sm.configRepo.GetAllEnvironments()
+		if err == nil {
+			names := make([]string, len(envs))
+			for i, e := range envs {
+				names[i] = e.Name
+			}
+			return names
+		}
+	}
 	return []string{"snd", "dev", "sit", "preprod", "trg", "prod", "qa", "stage"}
 }
 
 // ValidPresets returns the list of valid preset names
 func (sm *ScalingManager) ValidPresets() []string {
-	presets := make([]string, 0, len(Presets))
-	for name := range Presets {
-		presets = append(presets, name)
+	if sm.configRepo != nil {
+		presets, err := sm.configRepo.GetAllScalingPresets()
+		if err == nil {
+			names := make([]string, len(presets))
+			for i, p := range presets {
+				names[i] = p.Name
+			}
+			return names
+		}
 	}
-	return presets
+	return []string{"normal", "performance", "minimal"}
 }
 
 // Scale applies a preset to all HPAs in the environment
 func (sm *ScalingManager) Scale(env, presetName string) error {
-	preset, ok := Presets[presetName]
-	if !ok {
-		return fmt.Errorf("invalid preset: %s (valid: %s)", presetName, strings.Join(sm.ValidPresets(), ", "))
+	var preset ScalingPreset
+	
+	if sm.configRepo != nil {
+		dbPreset, err := sm.configRepo.GetScalingPreset(presetName)
+		if err == nil {
+			preset = ScalingPreset{Min: dbPreset.MinReplicas, Max: dbPreset.MaxReplicas}
+		} else {
+			return fmt.Errorf("invalid preset: %s (valid: %s)", presetName, strings.Join(sm.ValidPresets(), ", "))
+		}
+	} else {
+		// Fallback to hardcoded presets
+		presets := map[string]ScalingPreset{
+			"normal":      {Min: 2, Max: 10},
+			"performance": {Min: 10, Max: 50},
+			"minimal":     {Min: 1, Max: 3},
+		}
+		var ok bool
+		preset, ok = presets[presetName]
+		if !ok {
+			return fmt.Errorf("invalid preset: %s (valid: %s)", presetName, strings.Join(sm.ValidPresets(), ", "))
+		}
 	}
 
 	if !sm.isValidEnv(env) {

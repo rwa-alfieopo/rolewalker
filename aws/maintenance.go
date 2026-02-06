@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"rolewalkers/internal/db"
 	"strings"
 )
 
@@ -16,6 +17,7 @@ type MaintenanceManager struct {
 	apiToken   string
 	baseURL    string
 	httpClient *http.Client
+	configRepo *db.ConfigRepository
 }
 
 // MaintenanceStatus represents the current maintenance state
@@ -53,15 +55,42 @@ type fastlyDictionaryItem struct {
 
 // NewMaintenanceManager creates a new maintenance manager
 func NewMaintenanceManager() *MaintenanceManager {
+	database, err := db.NewDB()
+	var repo *db.ConfigRepository
+	var baseURL string
+	
+	if err == nil {
+		repo = db.NewConfigRepository(database)
+		endpoint, err := repo.GetAPIEndpoint("fastly")
+		if err == nil {
+			baseURL = endpoint.BaseURL
+		}
+	}
+	
+	if baseURL == "" {
+		baseURL = "https://api.fastly.com"
+	}
+	
 	return &MaintenanceManager{
 		apiToken:   os.Getenv("FASTLY_API_TOKEN"),
-		baseURL:    "https://api.fastly.com",
+		baseURL:    baseURL,
 		httpClient: &http.Client{},
+		configRepo: repo,
 	}
 }
 
 // ValidEnvironments returns the list of valid environments
 func (mm *MaintenanceManager) ValidEnvironments() []string {
+	if mm.configRepo != nil {
+		envs, err := mm.configRepo.GetAllEnvironments()
+		if err == nil {
+			names := make([]string, len(envs))
+			for i, e := range envs {
+				names[i] = e.Name
+			}
+			return names
+		}
+	}
 	return []string{"snd", "dev", "sit", "preprod", "trg", "prod"}
 }
 

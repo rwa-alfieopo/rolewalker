@@ -2,6 +2,7 @@ package aws
 
 import (
 	"fmt"
+	"rolewalkers/internal/db"
 	"sort"
 	"strings"
 )
@@ -16,101 +17,17 @@ type PortMapping struct {
 
 // PortConfig holds all port mappings
 type PortConfig struct {
-	mappings map[string]map[string][]int // service -> env -> ports
+	configRepo *db.ConfigRepository
 }
 
-// NewPortConfig creates a new port configuration with predefined mappings
+// NewPortConfig creates a new port configuration
 func NewPortConfig() *PortConfig {
-	pc := &PortConfig{
-		mappings: make(map[string]map[string][]int),
+	database, err := db.NewDB()
+	if err != nil {
+		return &PortConfig{configRepo: nil}
 	}
-	pc.initMappings()
-	return pc
-}
-
-func (pc *PortConfig) initMappings() {
-	// Database ports
-	pc.mappings["db"] = map[string][]int{
-		"snd":     {5432},
-		"dev":     {5433},
-		"sit":     {5434},
-		"preprod": {5435, 5436},
-		"trg":     {5437},
-		"prod":    {5438, 5439},
-		"qa":      {5440, 5441},
-		"stage":   {5442, 5443},
-	}
-
-	// Redis ports
-	pc.mappings["redis"] = map[string][]int{
-		"snd":     {6379},
-		"dev":     {6380},
-		"sit":     {6381},
-		"preprod": {6382},
-		"trg":     {6383},
-		"prod":    {6384},
-		"qa":      {6385},
-		"stage":   {6386},
-	}
-
-	// Elasticsearch ports (default for all envs)
-	pc.mappings["elasticsearch"] = map[string][]int{
-		"snd":     {9200},
-		"dev":     {9200},
-		"sit":     {9200},
-		"preprod": {9200},
-		"trg":     {9200},
-		"prod":    {9200},
-		"qa":      {9200},
-		"stage":   {9200},
-	}
-
-	// Kafka ports
-	pc.mappings["kafka"] = map[string][]int{
-		"snd":     {9092},
-		"dev":     {9093},
-		"sit":     {9094},
-		"preprod": {9095},
-		"trg":     {9096},
-		"prod":    {9097},
-		"qa":      {9098},
-		"stage":   {9099},
-	}
-
-	// RabbitMQ ports
-	pc.mappings["rabbitmq"] = map[string][]int{
-		"snd":     {5672},
-		"dev":     {5673},
-		"sit":     {5674},
-		"preprod": {5675},
-		"trg":     {5676},
-		"prod":    {5677},
-		"qa":      {5678},
-		"stage":   {5679},
-	}
-
-	// gRPC ports
-	pc.mappings["grpc"] = map[string][]int{
-		"snd":     {50051},
-		"dev":     {50052},
-		"sit":     {50053},
-		"preprod": {50054},
-		"trg":     {50055},
-		"prod":    {50056},
-		"qa":      {50057},
-		"stage":   {50058},
-	}
-
-	// MSK (Kafka UI) ports
-	pc.mappings["msk"] = map[string][]int{
-		"snd":     {8080},
-		"dev":     {8081},
-		"sit":     {8082},
-		"preprod": {8083},
-		"trg":     {8084},
-		"prod":    {8085},
-		"qa":      {8086},
-		"stage":   {8087},
+	return &PortConfig{
+		configRepo: db.NewConfigRepository(database),
 	}
 }
 
@@ -119,31 +36,45 @@ func (pc *PortConfig) GetPort(service, env string) ([]int, error) {
 	service = strings.ToLower(service)
 	env = strings.ToLower(env)
 
-	serviceMap, ok := pc.mappings[service]
-	if !ok {
-		return nil, fmt.Errorf("unknown service: %s\nAvailable: %s", service, pc.GetServices())
+	if pc.configRepo != nil {
+		pm, err := pc.configRepo.GetPortMapping(service, env)
+		if err == nil {
+			return []int{pm.LocalPort}, nil
+		}
 	}
 
-	ports, ok := serviceMap[env]
-	if !ok {
-		return nil, fmt.Errorf("unknown environment: %s\nAvailable: %s", env, pc.GetEnvironments())
-	}
-
-	return ports, nil
+	return nil, fmt.Errorf("port mapping not found for service: %s in environment: %s", service, env)
 }
 
 // GetServices returns all available services
 func (pc *PortConfig) GetServices() string {
-	services := make([]string, 0, len(pc.mappings))
-	for s := range pc.mappings {
-		services = append(services, s)
+	if pc.configRepo != nil {
+		services, err := pc.configRepo.GetAllServices()
+		if err == nil {
+			names := make([]string, len(services))
+			for i, s := range services {
+				names[i] = s.Name
+			}
+			sort.Strings(names)
+			return strings.Join(names, ", ")
+		}
 	}
-	sort.Strings(services)
-	return strings.Join(services, ", ")
+	return "db, redis, elasticsearch, kafka, msk, rabbitmq, grpc"
 }
 
 // GetEnvironments returns all available environments
 func (pc *PortConfig) GetEnvironments() string {
+	if pc.configRepo != nil {
+		envs, err := pc.configRepo.GetAllEnvironments()
+		if err == nil {
+			names := make([]string, len(envs))
+			for i, e := range envs {
+				names[i] = e.Name
+			}
+			sort.Strings(names)
+			return strings.Join(names, ", ")
+		}
+	}
 	return "snd, dev, sit, preprod, trg, prod, qa, stage"
 }
 
@@ -151,24 +82,32 @@ func (pc *PortConfig) GetEnvironments() string {
 func (pc *PortConfig) ListAll() string {
 	var sb strings.Builder
 
-	services := []string{"db", "redis", "elasticsearch", "kafka", "msk", "rabbitmq", "grpc"}
-	envs := []string{"snd", "dev", "sit", "preprod", "trg", "prod", "qa", "stage"}
-
 	sb.WriteString("Port Mappings:\n")
 	sb.WriteString(strings.Repeat("-", 70) + "\n")
 
-	for _, service := range services {
-		sb.WriteString(fmt.Sprintf("\n%s:\n", strings.ToUpper(service)))
-		for _, env := range envs {
-			if ports, err := pc.GetPort(service, env); err == nil {
-				portStrs := make([]string, len(ports))
-				for i, p := range ports {
-					portStrs[i] = fmt.Sprintf("%d", p)
+	if pc.configRepo != nil {
+		services, err := pc.configRepo.GetAllServices()
+		if err == nil {
+			envs, err := pc.configRepo.GetAllEnvironments()
+			if err == nil {
+				for _, service := range services {
+					if service.ServiceType == "grpc-microservice" {
+						continue // Skip microservices in main listing
+					}
+					sb.WriteString(fmt.Sprintf("\n%s:\n", strings.ToUpper(service.Name)))
+					for _, env := range envs {
+						pm, err := pc.configRepo.GetPortMapping(service.Name, env.Name)
+						if err == nil {
+							sb.WriteString(fmt.Sprintf("  %-8s %d\n", env.Name+":", pm.LocalPort))
+						}
+					}
 				}
-				sb.WriteString(fmt.Sprintf("  %-8s %s\n", env+":", strings.Join(portStrs, ", ")))
+				return sb.String()
 			}
 		}
 	}
 
+	// Fallback to legacy format
+	sb.WriteString("Database not available. Please initialize the database.\n")
 	return sb.String()
 }

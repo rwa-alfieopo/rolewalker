@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"rolewalkers/internal/db"
 	"rolewalkers/internal/k8s"
 	"rolewalkers/internal/utils"
 	"strings"
@@ -22,6 +23,7 @@ type TunnelManager struct {
 	portConfig      *PortConfig
 	state           *TunnelState
 	profileSwitcher *ProfileSwitcher
+	configRepo      *db.ConfigRepository
 }
 
 // TunnelConfig holds configuration for a tunnel
@@ -32,17 +34,6 @@ type TunnelConfig struct {
 	DBType      string // for db: query/command
 }
 
-// ServicePorts defines the remote port for each service
-var ServicePorts = map[string]int{
-	"db":            5432,
-	"redis":         6379,
-	"elasticsearch": 9200,
-	"kafka":         9092,
-	"msk":           9098,
-	"rabbitmq":      443,
-	"grpc":          5001,
-}
-
 // NewTunnelManager creates a new tunnel manager
 func NewTunnelManager() (*TunnelManager, error) {
 	state, err := NewTunnelState()
@@ -51,6 +42,11 @@ func NewTunnelManager() (*TunnelManager, error) {
 	}
 
 	ps, _ := NewProfileSwitcher()
+	database, dbErr := db.NewDB()
+	var repo *db.ConfigRepository
+	if dbErr == nil {
+		repo = db.NewConfigRepository(database)
+	}
 
 	return &TunnelManager{
 		kubeManager:     NewKubeManager(),
@@ -58,6 +54,7 @@ func NewTunnelManager() (*TunnelManager, error) {
 		portConfig:      NewPortConfig(),
 		state:           state,
 		profileSwitcher: ps,
+		configRepo:      repo,
 	}, nil
 }
 
@@ -92,9 +89,15 @@ func (tm *TunnelManager) Start(config TunnelConfig) error {
 	localPort := localPorts[0] // Use first port
 
 	// Get remote port
-	remotePort := ServicePorts[service]
+	var remotePort int
+	if tm.configRepo != nil {
+		svc, err := tm.configRepo.GetService(service)
+		if err == nil {
+			remotePort = svc.DefaultRemotePort
+		}
+	}
 	if remotePort == 0 {
-		remotePort = 5432 // default
+		remotePort = 5432 // default fallback
 	}
 
 	// Generate pod name
@@ -382,5 +385,19 @@ func (tm *TunnelManager) CleanupStale() error {
 
 // GetSupportedServices returns list of supported tunnel services
 func GetSupportedServices() string {
+	database, err := db.NewDB()
+	if err == nil {
+		repo := db.NewConfigRepository(database)
+		services, err := repo.GetAllServices()
+		if err == nil {
+			names := make([]string, 0)
+			for _, s := range services {
+				if s.ServiceType != "grpc-microservice" {
+					names = append(names, s.Name)
+				}
+			}
+			return strings.Join(names, ", ")
+		}
+	}
 	return "db, redis, elasticsearch, kafka, msk, rabbitmq, grpc"
 }

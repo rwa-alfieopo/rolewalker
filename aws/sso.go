@@ -81,10 +81,23 @@ func (sm *SSOManager) Login(profileName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "aws", "sso", "login", "--profile", profileName)
+	// Create command with proper OS-compatible execution
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		// On Windows, use cmd.exe to properly handle the AWS CLI
+		cmd = exec.CommandContext(ctx, "cmd", "/C", "aws", "sso", "login", "--profile", profileName)
+	} else {
+		// On Unix-like systems (Linux, macOS), execute directly
+		cmd = exec.CommandContext(ctx, "aws", "sso", "login", "--profile", profileName)
+	}
+
+	// Connect standard streams for interactive authentication
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+
+	// Set environment to ensure proper terminal handling
+	cmd.Env = os.Environ()
 
 	return cmd.Run()
 }
@@ -138,7 +151,16 @@ func (sm *SSOManager) Logout(profileName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "aws", "sso", "logout", "--profile", profileName)
+	// Create command with proper OS-compatible execution
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		// On Windows, use cmd.exe to properly handle the AWS CLI
+		cmd = exec.CommandContext(ctx, "cmd", "/C", "aws", "sso", "logout", "--profile", profileName)
+	} else {
+		// On Unix-like systems (Linux, macOS), execute directly
+		cmd = exec.CommandContext(ctx, "aws", "sso", "logout", "--profile", profileName)
+	}
+
 	return cmd.Run()
 }
 

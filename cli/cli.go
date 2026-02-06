@@ -143,8 +143,6 @@ func (c *CLI) Run(args []string) error {
 		return c.scale(cmdArgs)
 	case "replication":
 		return c.replication(cmdArgs)
-	case "gui", "--gui":
-		return c.launchGUI()
 	case "keygen":
 		return c.keygen(cmdArgs)
 	case "ssm":
@@ -214,7 +212,6 @@ Commands:
     --decrypt           Decrypt SecureString (default: enabled)
   ssm list <prefix>     List parameters under a path prefix
   keygen [count]        Generate cryptographically secure API keys
-  gui, --gui            Launch the GUI application
   help                  Show this help message
 
 Tunnel Services: db, redis, elasticsearch, kafka, msk, rabbitmq, grpc
@@ -258,7 +255,6 @@ Examples:
   rwcli grpc list                # List all gRPC services and ports
   rwcli ssm get /dev/zenith/database/query/db-write-endpoint
   rwcli ssm list /dev/zenith/   # List all params under prefix
-  rwcli --gui                    # Open GUI
 `
 	fmt.Println(help)
 	return nil
@@ -402,20 +398,69 @@ func (c *CLI) current() error {
 	active := c.configManager.GetActiveProfile()
 	region := c.profileSwitcher.GetDefaultRegion()
 
-	fmt.Printf("Active Profile: %s\n", active)
+	fmt.Println("Current Context:")
+	fmt.Println(strings.Repeat("-", 60))
+
+	// AWS Profile
+	fmt.Printf("AWS Profile:     %s\n", active)
 	if region != "" {
-		fmt.Printf("Default Region: %s\n", region)
+		fmt.Printf("AWS Region:      %s\n", region)
 	}
 
-	// Check environment variables
-	if envProfile := os.Getenv("AWS_PROFILE"); envProfile != "" {
-		fmt.Printf("AWS_PROFILE env: %s\n", envProfile)
+	// Get profile details (account ID and account name)
+	profiles, err := c.configManager.GetProfiles()
+	if err == nil {
+		for _, p := range profiles {
+			if p.Name == active && p.IsSSO {
+				fmt.Printf("Account ID:      %s\n", p.SSOAccountID)
+				// Account name is typically derived from the profile name or role
+				accountName := c.extractAccountName(p.Name)
+				if accountName != "" {
+					fmt.Printf("Account Name:    %s\n", accountName)
+				}
+				break
+			}
+		}
 	}
-	if envRegion := os.Getenv("AWS_DEFAULT_REGION"); envRegion != "" {
-		fmt.Printf("AWS_DEFAULT_REGION env: %s\n", envRegion)
+
+	// Kubernetes context
+	kubeContext, err := c.kubeManager.GetCurrentContext()
+	if err == nil && kubeContext != "" {
+		fmt.Printf("Kube Cluster:    %s\n", kubeContext)
+		
+		// Get namespace (default to "default" if not set)
+		namespace := c.kubeManager.GetCurrentNamespace()
+		if namespace == "" {
+			namespace = "default"
+		}
+		fmt.Printf("Kube Namespace:  %s\n", namespace)
+	} else {
+		fmt.Printf("Kube Cluster:    (not configured)\n")
+		fmt.Printf("Kube Namespace:  (not configured)\n")
+	}
+
+	// Check environment variable overrides
+	if envProfile := os.Getenv("AWS_PROFILE"); envProfile != "" && envProfile != active {
+		fmt.Printf("\n⚠ AWS_PROFILE env override: %s\n", envProfile)
+	}
+	if envRegion := os.Getenv("AWS_DEFAULT_REGION"); envRegion != "" && envRegion != region {
+		fmt.Printf("⚠ AWS_DEFAULT_REGION env override: %s\n", envRegion)
 	}
 
 	return nil
+}
+
+// extractAccountName extracts a friendly account name from the profile name
+func (c *CLI) extractAccountName(profileName string) string {
+	// Remove common prefixes like "zenith-"
+	name := strings.TrimPrefix(profileName, "zenith-")
+	
+	// Capitalize first letter
+	if len(name) > 0 {
+		name = strings.ToUpper(name[:1]) + name[1:]
+	}
+	
+	return name
 }
 
 func (c *CLI) export(args []string) error {
@@ -464,11 +509,6 @@ func (c *CLI) showEnv() error {
 		}
 	}
 
-	return nil
-}
-
-func (c *CLI) launchGUI() error {
-	fmt.Println("Use 'rwcli' without arguments or 'rwcli gui' to launch GUI")
 	return nil
 }
 

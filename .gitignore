@@ -8,16 +8,10 @@ bin
 *.so
 *.dylib
 me
+rwcli
 
-# Frontend
-frontend/dist
-frontend/node_modules
-frontend/bindings
-
-# Wails build outputs
-build/bin/
-build/linux/appimage/build
-build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+# Frontend (archived)
+frontend/
 
 # Go
 *.test

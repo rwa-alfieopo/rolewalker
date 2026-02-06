@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -46,6 +47,17 @@ func NewReplicationManager() *ReplicationManager {
 	return &ReplicationManager{
 		region: "eu-west-2",
 	}
+}
+
+// createAWSCommand creates an OS-compatible AWS CLI command
+func createAWSCommand(args ...string) *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		// On Windows, use cmd.exe to properly handle the AWS CLI
+		cmdArgs := append([]string{"/C", "aws"}, args...)
+		return exec.Command("cmd", cmdArgs...)
+	}
+	// On Unix-like systems (Linux, macOS), execute directly
+	return exec.Command("aws", args...)
 }
 
 // ValidEnvironments returns the list of valid environments
@@ -121,7 +133,7 @@ func (rm *ReplicationManager) Switch(env, deploymentID string) error {
 	fmt.Println()
 
 	// Execute switchover
-	cmd := exec.Command("aws", "rds", "switchover-blue-green-deployment",
+	cmd := createAWSCommand("rds", "switchover-blue-green-deployment",
 		"--blue-green-deployment-identifier", deploymentID,
 		"--region", rm.region,
 	)
@@ -210,7 +222,7 @@ func (rm *ReplicationManager) Create(env, name, sourceCluster string) error {
 	fmt.Printf("  Source: %s\n", sourceCluster)
 	fmt.Println()
 
-	cmd := exec.Command("aws", "rds", "create-blue-green-deployment",
+	cmd := createAWSCommand("rds", "create-blue-green-deployment",
 		"--blue-green-deployment-name", name,
 		"--source", sourceARN,
 		"--region", rm.region,
@@ -268,7 +280,7 @@ func (rm *ReplicationManager) Delete(deploymentID string, deleteTarget bool) err
 		args = append(args, "--delete-target")
 	}
 
-	cmd := exec.Command("aws", args...)
+	cmd := createAWSCommand(args...)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -283,7 +295,7 @@ func (rm *ReplicationManager) Delete(deploymentID string, deleteTarget bool) err
 
 // listDeployments lists all Blue-Green deployments, optionally filtered by environment
 func (rm *ReplicationManager) listDeployments(env string) ([]BlueGreenDeployment, error) {
-	cmd := exec.Command("aws", "rds", "describe-blue-green-deployments",
+	cmd := createAWSCommand("rds", "describe-blue-green-deployments",
 		"--region", rm.region,
 	)
 
@@ -320,7 +332,7 @@ func (rm *ReplicationManager) listDeployments(env string) ([]BlueGreenDeployment
 
 // getDeployment retrieves a specific deployment by ID
 func (rm *ReplicationManager) getDeployment(deploymentID string) (*BlueGreenDeployment, error) {
-	cmd := exec.Command("aws", "rds", "describe-blue-green-deployments",
+	cmd := createAWSCommand("rds", "describe-blue-green-deployments",
 		"--blue-green-deployment-identifier", deploymentID,
 		"--region", rm.region,
 	)

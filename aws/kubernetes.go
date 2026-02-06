@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -93,6 +94,24 @@ func (km *KubeManager) GetCurrentContext() (string, error) {
 	return strings.TrimSpace(out.String()), nil
 }
 
+// GetCurrentNamespace returns the current kubectl namespace
+func (km *KubeManager) GetCurrentNamespace() string {
+	cmd := exec.Command("kubectl", "config", "view", "--minify", "--output", "jsonpath={..namespace}")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+
+	namespace := strings.TrimSpace(out.String())
+	if namespace == "" {
+		return "default"
+	}
+
+	return namespace
+}
+
 // SwitchContext switches to the specified kubectl context
 func (km *KubeManager) SwitchContext(contextName string) error {
 	cmd := exec.Command("kubectl", "config", "use-context", contextName)
@@ -171,11 +190,87 @@ func (km *KubeManager) FindContextForEnv(env string) (string, error) {
 	return "", fmt.Errorf("no matching kubectl context found for '%s' (looking for cluster: %s)", env, clusterName)
 }
 
+// UpdateKubeconfig updates the kubeconfig for the specified EKS cluster
+func (km *KubeManager) UpdateKubeconfig(clusterName, region string) error {
+	fmt.Printf("Updating kubeconfig for cluster: %s...\n", clusterName)
+	
+	// Create OS-compatible AWS CLI command
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/C", "aws", "eks", "update-kubeconfig",
+			"--name", clusterName,
+			"--region", region,
+		)
+	} else {
+		cmd = exec.Command("aws", "eks", "update-kubeconfig",
+			"--name", clusterName,
+			"--region", region,
+		)
+	}
+	
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to update kubeconfig: %s", stderr.String())
+	}
+	
+	return nil
+}
+
 // SwitchContextForEnv finds and switches to the kubectl context for the given environment
+// If the context doesn't exist, it will attempt to update the kubeconfig from AWS EKS
 func (km *KubeManager) SwitchContextForEnv(env string) error {
+	// Map profile names to EKS cluster names
+	clusterMap := map[string]string{
+		"zenith-qa":      "qa-zenith-eks-cluster",
+		"zenith-dev":     "dev-zenith-eks-cluster",
+		"zenith-live":    "prod-zenith-eks-cluster",
+		"zenith-sandbox": "snd-zenith-eks-cluster",
+		"zenith-staging": "stage-zenith-eks-cluster",
+	}
+
+	// Get the cluster name for this profile
+	clusterName, ok := clusterMap[env]
+	if !ok {
+		// Try extracting env name and building cluster name
+		envName := extractEnvName(env)
+		// Map common env names to cluster prefixes
+		envToPrefix := map[string]string{
+			"qa":      "qa",
+			"dev":     "dev",
+			"live":    "prod",
+			"prod":    "prod",
+			"sandbox": "snd",
+			"snd":     "snd",
+			"staging": "stage",
+			"stage":   "stage",
+			"preprod": "preprod",
+			"sit":     "sit",
+			"trg":     "trg",
+		}
+		prefix, found := envToPrefix[envName]
+		if found {
+			clusterName = prefix + "-zenith-eks-cluster"
+		} else {
+			clusterName = envName + "-zenith-eks-cluster"
+		}
+	}
+
+	// Try to find existing context
 	contextName, err := km.FindContextForEnv(env)
 	if err != nil {
-		return err
+		// Context not found, try to update kubeconfig from AWS
+		region := "eu-west-2" // Default region for Zenith
+		if updateErr := km.UpdateKubeconfig(clusterName, region); updateErr != nil {
+			return fmt.Errorf("context not found and failed to update kubeconfig: %w", updateErr)
+		}
+		
+		// Try to find context again after update
+		contextName, err = km.FindContextForEnv(env)
+		if err != nil {
+			return fmt.Errorf("context still not found after kubeconfig update: %w", err)
+		}
 	}
 
 	return km.SwitchContext(contextName)

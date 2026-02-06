@@ -1,60 +1,45 @@
 version: '3'
 
-includes:
-  common: ./build/Taskfile.yml
-  windows: ./build/windows/Taskfile.yml
-  darwin: ./build/darwin/Taskfile.yml
-  linux: ./build/linux/Taskfile.yml
-  ios: ./build/ios/Taskfile.yml
-  android: ./build/android/Taskfile.yml
-
 vars:
-  APP_NAME: "rolewalkers"
+  APP_NAME: "rwcli"
   BIN_DIR: "bin"
-  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
 
 tasks:
   build:
-    summary: Builds the application
+    summary: Builds the CLI application
     cmds:
-      - task: "{{OS}}:build"
+      - go build -o {{.BIN_DIR}}/{{.APP_NAME}} cmd/rwcli/main.go
 
-  package:
-    summary: Packages a production build of the application
+  build:all:
+    summary: Builds for all platforms
     cmds:
-      - task: "{{OS}}:package"
+      - GOOS=darwin GOARCH=amd64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-darwin-amd64 cmd/rwcli/main.go
+      - GOOS=darwin GOARCH=arm64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-darwin-arm64 cmd/rwcli/main.go
+      - GOOS=linux GOARCH=amd64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-linux-amd64 cmd/rwcli/main.go
+      - GOOS=windows GOARCH=amd64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-windows-amd64.exe cmd/rwcli/main.go
 
-  run:
-    summary: Runs the application
+  install:
+    summary: Installs the CLI to $GOPATH/bin
     cmds:
-      - task: "{{OS}}:run"
+      - go install cmd/rwcli/main.go
 
-  dev:
-    summary: Runs the application in development mode
+  clean:
+    summary: Cleans build artifacts
     cmds:
-      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+      - rm -rf {{.BIN_DIR}}
+      - rm -f rwcli rwcli.exe
 
-  setup:docker:
-    summary: Builds Docker image for cross-compilation (~800MB download)
+  test:
+    summary: Runs tests
     cmds:
-      - task: common:setup:docker
+      - go test ./...
 
-  build:server:
-    summary: Builds the application in server mode (no GUI, HTTP server only)
+  fmt:
+    summary: Formats code
     cmds:
-      - task: common:build:server
+      - go fmt ./...
 
-  run:server:
-    summary: Runs the application in server mode
+  vet:
+    summary: Runs go vet
     cmds:
-      - task: common:run:server
-
-  build:docker:
-    summary: Builds a Docker image for server mode deployment
-    cmds:
-      - task: common:build:docker
-
-  run:docker:
-    summary: Builds and runs the Docker image
-    cmds:
-      - task: common:run:docker
+      - go vet ./...

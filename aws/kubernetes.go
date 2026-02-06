@@ -9,6 +9,14 @@ import (
 	"strings"
 )
 
+const (
+	// DefaultRegion is the default AWS region for EKS clusters
+	DefaultRegion = "eu-west-2"
+	
+	// ClusterNameSuffix is the common suffix for EKS cluster names
+	ClusterNameSuffix = "-zenith-eks-cluster"
+)
+
 // KubeManager handles Kubernetes context operations
 type KubeManager struct{}
 
@@ -36,10 +44,16 @@ func (km *KubeManager) GetContexts() ([]KubeContext, error) {
 		return nil, fmt.Errorf("failed to get kubectl contexts: %s", stderr.String())
 	}
 
+	output := strings.TrimSpace(out.String())
+	if output == "" {
+		return []KubeContext{}, nil
+	}
+
 	var contexts []KubeContext
-	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	lines := strings.Split(output, "\n")
 
 	for _, line := range lines {
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
@@ -114,6 +128,10 @@ func (km *KubeManager) GetCurrentNamespace() string {
 
 // SwitchContext switches to the specified kubectl context
 func (km *KubeManager) SwitchContext(contextName string) error {
+	if contextName == "" {
+		return fmt.Errorf("context name cannot be empty")
+	}
+
 	cmd := exec.Command("kubectl", "config", "use-context", contextName)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -128,47 +146,21 @@ func (km *KubeManager) SwitchContext(contextName string) error {
 // FindContextForEnv finds a matching kubectl context for the given environment
 // Uses the exact cluster name mapping from AWS profiles
 func (km *KubeManager) FindContextForEnv(env string) (string, error) {
+	if env == "" {
+		return "", fmt.Errorf("environment name cannot be empty")
+	}
+
 	contexts, err := km.GetContexts()
 	if err != nil {
 		return "", err
 	}
 
-	// Map profile names to EKS cluster names
-	clusterMap := map[string]string{
-		"zenith-qa":      "qa-zenith-eks-cluster",
-		"zenith-dev":     "dev-zenith-eks-cluster",
-		"zenith-live":    "prod-zenith-eks-cluster",
-		"zenith-sandbox": "snd-zenith-eks-cluster",
-		"zenith-staging": "stage-zenith-eks-cluster",
+	if len(contexts) == 0 {
+		return "", fmt.Errorf("no kubectl contexts available")
 	}
 
-	// Get the cluster name for this profile
-	clusterName, ok := clusterMap[env]
-	if !ok {
-		// Try extracting env name and building cluster name
-		envName := extractEnvName(env)
-		// Map common env names to cluster prefixes
-		envToPrefix := map[string]string{
-			"qa":      "qa",
-			"dev":     "dev",
-			"live":    "prod",
-			"prod":    "prod",
-			"sandbox": "snd",
-			"snd":     "snd",
-			"staging": "stage",
-			"stage":   "stage",
-			"preprod": "preprod",
-			"sit":     "sit",
-			"trg":     "trg",
-		}
-		prefix, found := envToPrefix[envName]
-		if found {
-			clusterName = prefix + "-zenith-eks-cluster"
-		} else {
-			clusterName = envName + "-zenith-eks-cluster"
-		}
-	}
-
+	clusterName := km.getClusterNameForEnv(env)
+	
 	// Pattern to match ARN format contexts
 	arnPattern := regexp.MustCompile(fmt.Sprintf(`arn:aws:eks:[^:]+:\d+:cluster/%s`, regexp.QuoteMeta(clusterName)))
 
@@ -192,6 +184,13 @@ func (km *KubeManager) FindContextForEnv(env string) (string, error) {
 
 // UpdateKubeconfig updates the kubeconfig for the specified EKS cluster
 func (km *KubeManager) UpdateKubeconfig(clusterName, region string) error {
+	if clusterName == "" {
+		return fmt.Errorf("cluster name cannot be empty")
+	}
+	if region == "" {
+		region = DefaultRegion
+	}
+
 	fmt.Printf("Updating kubeconfig for cluster: %s...\n", clusterName)
 	
 	cmd := awscli.CreateCommand("eks", "update-kubeconfig",
@@ -218,41 +217,11 @@ func (km *KubeManager) SwitchContextForEnv(env string) error {
 // SwitchContextForEnvWithProfile finds and switches to the kubectl context for the given environment
 // If the context doesn't exist, it will attempt to switch AWS profile and update kubeconfig from AWS EKS
 func (km *KubeManager) SwitchContextForEnvWithProfile(env string, profileSwitcher *ProfileSwitcher) error {
-	// Map profile names to EKS cluster names
-	clusterMap := map[string]string{
-		"zenith-qa":      "qa-zenith-eks-cluster",
-		"zenith-dev":     "dev-zenith-eks-cluster",
-		"zenith-live":    "prod-zenith-eks-cluster",
-		"zenith-sandbox": "snd-zenith-eks-cluster",
-		"zenith-staging": "stage-zenith-eks-cluster",
+	if env == "" {
+		return fmt.Errorf("environment name cannot be empty")
 	}
 
-	// Get the cluster name for this profile
-	clusterName, ok := clusterMap[env]
-	if !ok {
-		// Try extracting env name and building cluster name
-		envName := extractEnvName(env)
-		// Map common env names to cluster prefixes
-		envToPrefix := map[string]string{
-			"qa":      "qa",
-			"dev":     "dev",
-			"live":    "prod",
-			"prod":    "prod",
-			"sandbox": "snd",
-			"snd":     "snd",
-			"staging": "stage",
-			"stage":   "stage",
-			"preprod": "preprod",
-			"sit":     "sit",
-			"trg":     "trg",
-		}
-		prefix, found := envToPrefix[envName]
-		if found {
-			clusterName = prefix + "-zenith-eks-cluster"
-		} else {
-			clusterName = envName + "-zenith-eks-cluster"
-		}
-	}
+	clusterName := km.getClusterNameForEnv(env)
 
 	// Try to find existing context
 	contextName, err := km.FindContextForEnv(env)
@@ -267,8 +236,7 @@ func (km *KubeManager) SwitchContextForEnvWithProfile(env string, profileSwitche
 			}
 		}
 		
-		region := "eu-west-2" // Default region for Zenith
-		if updateErr := km.UpdateKubeconfig(clusterName, region); updateErr != nil {
+		if updateErr := km.UpdateKubeconfig(clusterName, DefaultRegion); updateErr != nil {
 			return fmt.Errorf("context not found and failed to update kubeconfig: %w", updateErr)
 		}
 		
@@ -282,8 +250,58 @@ func (km *KubeManager) SwitchContextForEnvWithProfile(env string, profileSwitche
 	return km.SwitchContext(contextName)
 }
 
+// getClusterNameForEnv returns the EKS cluster name for a given environment
+func (km *KubeManager) getClusterNameForEnv(env string) string {
+	// Direct mapping for full profile names
+	clusterMap := map[string]string{
+		"zenith-qa":      "qa" + ClusterNameSuffix,
+		"zenith-dev":     "dev" + ClusterNameSuffix,
+		"zenith-live":    "prod" + ClusterNameSuffix,
+		"zenith-sandbox": "snd" + ClusterNameSuffix,
+		"zenith-staging": "stage" + ClusterNameSuffix,
+	}
+
+	if cluster, ok := clusterMap[env]; ok {
+		return cluster
+	}
+
+	// Extract environment name and map to cluster prefix
+	envName := extractEnvName(env)
+	prefix := km.getClusterPrefixForEnv(envName)
+	return prefix + ClusterNameSuffix
+}
+
+// getClusterPrefixForEnv returns the cluster prefix for a given environment name
+func (km *KubeManager) getClusterPrefixForEnv(envName string) string {
+	envToPrefix := map[string]string{
+		"qa":      "qa",
+		"dev":     "dev",
+		"live":    "prod",
+		"prod":    "prod",
+		"sandbox": "snd",
+		"snd":     "snd",
+		"staging": "stage",
+		"stage":   "stage",
+		"preprod": "preprod",
+		"sit":     "sit",
+		"trg":     "trg",
+	}
+
+	if prefix, ok := envToPrefix[envName]; ok {
+		return prefix
+	}
+
+	// Default: use env name as prefix
+	return envName
+}
+
 // getProfileNameForEnv returns the AWS profile name for a given environment
 func (km *KubeManager) getProfileNameForEnv(env string) string {
+	// Check if env is already a profile name
+	if strings.HasPrefix(env, "zenith-") {
+		return env
+	}
+
 	// Map environment names to AWS profile names
 	envToProfile := map[string]string{
 		"qa":      "zenith-qa",
@@ -298,18 +316,13 @@ func (km *KubeManager) getProfileNameForEnv(env string) string {
 		"sit":     "zenith-sit",
 		"trg":     "zenith-trg",
 	}
-	
-	// Check if env is already a profile name
-	if strings.HasPrefix(env, "zenith-") {
-		return env
-	}
-	
+
 	// Extract env name and map to profile
 	envName := extractEnvName(env)
 	if profile, ok := envToProfile[envName]; ok {
 		return profile
 	}
-	
+
 	// Default: prepend zenith-
 	return "zenith-" + envName
 }

@@ -93,22 +93,22 @@ func (c *CLI) Run(args []string) error {
 		return c.listProfiles()
 	case "switch", "use":
 		if len(cmdArgs) < 1 {
-			return fmt.Errorf("usage: rwcli switch <profile-name> [--kube]")
+			return fmt.Errorf("usage: rwcli switch <profile-name> [--no-kube]")
 		}
-		// Parse --kube flag
-		withKube := false
+		// Parse --no-kube flag (kubectl context switches by default now)
+		skipKube := false
 		profileName := ""
 		for _, arg := range cmdArgs {
-			if arg == "--kube" || arg == "-k" {
-				withKube = true
+			if arg == "--no-kube" || arg == "--skip-kube" {
+				skipKube = true
 			} else if !strings.HasPrefix(arg, "-") {
 				profileName = arg
 			}
 		}
 		if profileName == "" {
-			return fmt.Errorf("usage: rwcli switch <profile-name> [--kube]")
+			return fmt.Errorf("usage: rwcli switch <profile-name> [--no-kube]")
 		}
-		return c.switchProfile(profileName, withKube)
+		return c.switchProfile(profileName, skipKube)
 	case "login":
 		if len(cmdArgs) < 1 {
 			return fmt.Errorf("usage: rwcli login <profile-name>")
@@ -163,8 +163,8 @@ Usage: rwcli <command> [arguments]
 
 Commands:
   list, ls              List all AWS profiles
-  switch, use <profile> Switch to a profile (updates default)
-    --kube, -k          Also switch kubectl context to matching EKS cluster
+  switch, use <profile> Switch to a profile (updates default + kubectl context)
+    --no-kube           Skip kubectl context switch
   login <profile>       SSO login for a profile
   logout <profile>      SSO logout for a profile
   status                Show login status for all SSO profiles
@@ -222,8 +222,8 @@ gRPC Services: candidate, job, client, organisation, user, email, billing, core
 
 Examples:
   rwcli list                     # List all profiles
-  rwcli switch zenith-dev        # Switch AWS profile
-  rwcli switch zenith-dev --kube # Switch AWS profile AND k8s context
+  rwcli switch zenith-dev        # Switch AWS profile + k8s context
+  rwcli switch zenith-dev --no-kube # Switch AWS profile only
   rwcli login my-sso-profile     # Login via SSO
   rwcli kube dev                 # Switch only k8s context
   rwcli port db dev              # Get database port for dev
@@ -311,15 +311,15 @@ func (c *CLI) listProfiles() error {
 	return nil
 }
 
-func (c *CLI) switchProfile(profileName string, withKube bool) error {
+func (c *CLI) switchProfile(profileName string, skipKube bool) error {
 	if err := c.profileSwitcher.SwitchProfile(profileName); err != nil {
 		return err
 	}
 
 	fmt.Printf("✓ Switched to profile: %s\n", profileName)
 
-	// Switch kubectl context if requested
-	if withKube {
+	// Always switch kubectl context unless explicitly skipped
+	if !skipKube {
 		if err := c.kubeManager.SwitchContextForEnv(profileName); err != nil {
 			fmt.Printf("⚠ Failed to switch kubectl context: %v\n", err)
 		} else {
@@ -328,10 +328,17 @@ func (c *CLI) switchProfile(profileName string, withKube bool) error {
 		}
 	}
 
-	// Show export hint
-	fmt.Println("\nTo update your current shell session, run:")
-	fmt.Printf("  PowerShell: $env:AWS_PROFILE = '%s'\n", profileName)
-	fmt.Printf("  Bash/Zsh:   export AWS_PROFILE='%s'\n", profileName)
+	// Check if AWS_PROFILE env var is set - it overrides the config file
+	if envProfile := os.Getenv("AWS_PROFILE"); envProfile != "" && envProfile != profileName {
+		fmt.Println("\n⚠ AWS_PROFILE environment variable is set and overrides the config.")
+		fmt.Println("  Clear it for this terminal:")
+		if runtime.GOOS == "windows" {
+			fmt.Println("    Remove-Item Env:AWS_PROFILE")
+		} else {
+			fmt.Println("    unset AWS_PROFILE")
+		}
+		fmt.Println("  (New terminals will work automatically)")
+	}
 
 	return nil
 }

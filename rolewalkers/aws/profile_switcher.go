@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -56,6 +58,24 @@ func (ps *ProfileSwitcher) SwitchProfile(profileName string) error {
 		return err
 	}
 
+	// Set persistent environment variable (Windows User level, or export file for Unix)
+	if err := ps.setPersistentEnv(profileName, targetProfile.Region); err != nil {
+		// Non-fatal - just warn
+		fmt.Printf("⚠ Could not set persistent environment: %v\n", err)
+	}
+
+	return nil
+}
+
+// setPersistentEnv clears AWS_PROFILE from User environment on Windows
+// so that AWS CLI uses the [default] profile from config file
+func (ps *ProfileSwitcher) setPersistentEnv(profileName, region string) error {
+	if runtime.GOOS == "windows" {
+		// Clear AWS_PROFILE from User environment so AWS CLI uses [default] from config
+		cmd := exec.Command("powershell", "-NoProfile", "-Command",
+			`[Environment]::SetEnvironmentVariable("AWS_PROFILE", $null, "User")`)
+		cmd.Run() // Non-fatal if this fails
+	}
 	return nil
 }
 

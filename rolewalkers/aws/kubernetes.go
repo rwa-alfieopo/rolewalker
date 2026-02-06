@@ -107,38 +107,68 @@ func (km *KubeManager) SwitchContext(contextName string) error {
 }
 
 // FindContextForEnv finds a matching kubectl context for the given environment
-// Supports patterns:
-// - ARN format: arn:aws:eks:eu-west-2:{account}:cluster/{env}-zenith-eks-cluster
-// - Simple format: zenith-{env}
+// Uses the exact cluster name mapping from AWS profiles
 func (km *KubeManager) FindContextForEnv(env string) (string, error) {
 	contexts, err := km.GetContexts()
 	if err != nil {
 		return "", err
 	}
 
-	// Extract env name from profile (e.g., "zenith-dev" -> "dev")
-	envName := extractEnvName(env)
+	// Map profile names to EKS cluster names
+	clusterMap := map[string]string{
+		"zenith-qa":      "qa-zenith-eks-cluster",
+		"zenith-dev":     "dev-zenith-eks-cluster",
+		"zenith-live":    "prod-zenith-eks-cluster",
+		"zenith-sandbox": "snd-zenith-eks-cluster",
+		"zenith-staging": "stage-zenith-eks-cluster",
+	}
 
-	// Pattern matchers
-	arnPattern := regexp.MustCompile(fmt.Sprintf(`arn:aws:eks:[^:]+:\d+:cluster/%s-zenith-eks-cluster`, regexp.QuoteMeta(envName)))
-	simplePattern := fmt.Sprintf("zenith-%s", envName)
+	// Get the cluster name for this profile
+	clusterName, ok := clusterMap[env]
+	if !ok {
+		// Try extracting env name and building cluster name
+		envName := extractEnvName(env)
+		// Map common env names to cluster prefixes
+		envToPrefix := map[string]string{
+			"qa":      "qa",
+			"dev":     "dev",
+			"live":    "prod",
+			"prod":    "prod",
+			"sandbox": "snd",
+			"snd":     "snd",
+			"staging": "stage",
+			"stage":   "stage",
+			"preprod": "preprod",
+			"sit":     "sit",
+			"trg":     "trg",
+		}
+		prefix, found := envToPrefix[envName]
+		if found {
+			clusterName = prefix + "-zenith-eks-cluster"
+		} else {
+			clusterName = envName + "-zenith-eks-cluster"
+		}
+	}
+
+	// Pattern to match ARN format contexts
+	arnPattern := regexp.MustCompile(fmt.Sprintf(`arn:aws:eks:[^:]+:\d+:cluster/%s`, regexp.QuoteMeta(clusterName)))
 
 	for _, ctx := range contexts {
-		// Check ARN format
+		// Check if context name matches ARN pattern with cluster name
 		if arnPattern.MatchString(ctx.Name) {
 			return ctx.Name, nil
 		}
-		// Check simple format
-		if ctx.Name == simplePattern {
+		// Check if context name is the cluster name directly
+		if ctx.Name == clusterName {
 			return ctx.Name, nil
 		}
-		// Check cluster name for ARN pattern
+		// Check cluster field for ARN pattern
 		if arnPattern.MatchString(ctx.Cluster) {
 			return ctx.Name, nil
 		}
 	}
 
-	return "", fmt.Errorf("no matching kubectl context found for environment '%s'", envName)
+	return "", fmt.Errorf("no matching kubectl context found for '%s' (looking for cluster: %s)", env, clusterName)
 }
 
 // SwitchContextForEnv finds and switches to the kubectl context for the given environment

@@ -1,8 +1,10 @@
 package web
 
 import (
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +16,9 @@ import (
 	"rolewalkers/aws"
 	"rolewalkers/internal/db"
 )
+
+//go:embed ../../web/*
+var webFS embed.FS
 
 type Server struct {
 	port         int
@@ -80,13 +85,28 @@ func (s *Server) Start() error {
 
 	// Serve static files
 	webDir := s.getWebDir()
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			http.ServeFile(w, r, filepath.Join(webDir, "index.html"))
-			return
-		}
-		http.FileServer(http.Dir(webDir)).ServeHTTP(w, r)
-	})
+	var fileSystem http.FileSystem
+	
+	if webDir == "embedded" {
+		// Use embedded filesystem
+		subFS, _ := fs.Sub(webFS, "web")
+		fileSystem = http.FS(subFS)
+		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/" {
+				r.URL.Path = "/index.html"
+			}
+			http.FileServer(fileSystem).ServeHTTP(w, r)
+		})
+	} else {
+		// Use disk filesystem
+		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/" {
+				http.ServeFile(w, r, filepath.Join(webDir, "index.html"))
+				return
+			}
+			http.FileServer(http.Dir(webDir)).ServeHTTP(w, r)
+		})
+	}
 
 	addr := fmt.Sprintf("localhost:%d", s.port)
 	fmt.Printf("Starting web server on http://%s\n", addr)
@@ -110,7 +130,8 @@ func (s *Server) getWebDir() string {
 			return filepath.Join(dir, "web")
 		}
 	}
-	return "web"
+	// Use embedded filesystem as fallback
+	return "embedded"
 }
 
 func (s *Server) openBrowser(url string) {

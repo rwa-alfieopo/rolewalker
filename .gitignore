@@ -28,3 +28,10 @@ coverage.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# Kiro
+.kiro/
+
+# Documentation (except README)
+*.md
+!README.md

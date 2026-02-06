@@ -13,8 +13,9 @@ import (
 
 // DatabaseManager handles database connection operations
 type DatabaseManager struct {
-	kubeManager *KubeManager
-	ssmManager  *SSMManager
+	kubeManager     *KubeManager
+	ssmManager      *SSMManager
+	profileSwitcher *ProfileSwitcher
 }
 
 // DatabaseConfig holds configuration for a database connection
@@ -26,9 +27,11 @@ type DatabaseConfig struct {
 
 // NewDatabaseManager creates a new DatabaseManager instance
 func NewDatabaseManager() *DatabaseManager {
+	ps, _ := NewProfileSwitcher()
 	return &DatabaseManager{
-		kubeManager: NewKubeManager(),
-		ssmManager:  NewSSMManager(),
+		kubeManager:     NewKubeManager(),
+		ssmManager:      NewSSMManager(),
+		profileSwitcher: ps,
 	}
 }
 
@@ -48,7 +51,7 @@ func (dm *DatabaseManager) Connect(config DatabaseConfig) error {
 
 	// Switch kubectl context to the environment
 	fmt.Printf("Switching kubectl context to %s...\n", env)
-	if err := dm.kubeManager.SwitchContextForEnv(env); err != nil {
+	if err := dm.kubeManager.SwitchContextForEnvWithProfile(env, dm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 
@@ -91,11 +94,30 @@ func (dm *DatabaseManager) Connect(config DatabaseConfig) error {
 
 // runPsqlPod spawns an interactive psql pod
 func (dm *DatabaseManager) runPsqlPod(podName, endpoint, password string) error {
+	// Get creator identity
+	username := sanitizeLabelValue(os.Getenv("USER"))
+	if username == "" {
+		username = sanitizeLabelValue(os.Getenv("USERNAME"))
+	}
+	if username == "" {
+		username = "unknown"
+	}
+	email := sanitizeLabelValue(os.Getenv("EMAIL"))
+	if email == "" {
+		email = "unknown"
+	}
+	timestamp := fmt.Sprintf("%d", os.Getpid()) // Use PID for temp pods
+
+	// Build labels with creator identity
+	labels := fmt.Sprintf("created-by=%s,creator-email=%s,session-id=%s",
+		username, email, timestamp)
+
 	cmd := exec.Command("kubectl", "run", podName,
 		"--rm", "-it",
 		"--restart=Never",
 		"--namespace=tunnel-access",
 		"--image=postgres:15-alpine",
+		"--labels", labels,
 		fmt.Sprintf("--env=PGPASSWORD=%s", password),
 		"--",
 		"psql",
@@ -151,7 +173,7 @@ func (dm *DatabaseManager) Backup(config BackupConfig) error {
 
 	// Switch kubectl context to the environment
 	fmt.Printf("Switching kubectl context to %s...\n", env)
-	if err := dm.kubeManager.SwitchContextForEnv(env); err != nil {
+	if err := dm.kubeManager.SwitchContextForEnvWithProfile(env, dm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 
@@ -170,8 +192,15 @@ func (dm *DatabaseManager) Backup(config BackupConfig) error {
 		return fmt.Errorf("failed to get database password: %w", err)
 	}
 
-	// Generate unique pod name
-	podName := fmt.Sprintf("pgdump-temp-%d", rand.Intn(100000))
+	// Generate unique pod name with username
+	username := sanitizeLabelValue(os.Getenv("USER"))
+	if username == "" {
+		username = sanitizeLabelValue(os.Getenv("USERNAME"))
+	}
+	if username == "" {
+		username = "user"
+	}
+	podName := fmt.Sprintf("pgdump-%s-%d", username, rand.Intn(100000))
 
 	fmt.Printf("\nStarting database backup:\n")
 	fmt.Printf("  Environment: %s\n", env)
@@ -190,6 +219,24 @@ func (dm *DatabaseManager) Backup(config BackupConfig) error {
 
 // runPgDumpPod spawns a temporary pod to run pg_dump and captures output to file
 func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, config BackupConfig) error {
+	// Get creator identity
+	username := sanitizeLabelValue(os.Getenv("USER"))
+	if username == "" {
+		username = sanitizeLabelValue(os.Getenv("USERNAME"))
+	}
+	if username == "" {
+		username = "unknown"
+	}
+	email := sanitizeLabelValue(os.Getenv("EMAIL"))
+	if email == "" {
+		email = "unknown"
+	}
+	timestamp := fmt.Sprintf("%d", os.Getpid()) // Use PID for temp pods
+
+	// Build labels with creator identity
+	labels := fmt.Sprintf("created-by=%s,creator-email=%s,session-id=%s,operation=backup",
+		username, email, timestamp)
+
 	// Build pg_dump arguments
 	pgDumpArgs := []string{
 		"-h", endpoint,
@@ -207,6 +254,7 @@ func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, conf
 		"--restart=Never",
 		"--namespace=tunnel-access",
 		"--image=postgres:15-alpine",
+		"--labels", labels,
 		fmt.Sprintf("--env=PGPASSWORD=%s", password),
 		"--",
 		"pg_dump",
@@ -257,7 +305,7 @@ func (dm *DatabaseManager) Restore(config RestoreConfig) error {
 
 	// Switch kubectl context to the environment
 	fmt.Printf("Switching kubectl context to %s...\n", env)
-	if err := dm.kubeManager.SwitchContextForEnv(env); err != nil {
+	if err := dm.kubeManager.SwitchContextForEnvWithProfile(env, dm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 
@@ -276,8 +324,15 @@ func (dm *DatabaseManager) Restore(config RestoreConfig) error {
 		return fmt.Errorf("failed to get database password: %w", err)
 	}
 
-	// Generate unique pod name
-	podName := fmt.Sprintf("pgrestore-temp-%d", rand.Intn(100000))
+	// Generate unique pod name with username
+	username := sanitizeLabelValue(os.Getenv("USER"))
+	if username == "" {
+		username = sanitizeLabelValue(os.Getenv("USERNAME"))
+	}
+	if username == "" {
+		username = "user"
+	}
+	podName := fmt.Sprintf("pgrestore-%s-%d", username, rand.Intn(100000))
 
 	// Get file size for progress info
 	fileInfo, _ := os.Stat(config.InputFile)
@@ -299,6 +354,24 @@ func (dm *DatabaseManager) Restore(config RestoreConfig) error {
 
 // runPsqlRestorePod spawns a temporary pod to run psql and pipes SQL file to stdin
 func (dm *DatabaseManager) runPsqlRestorePod(podName, endpoint, password string, config RestoreConfig) error {
+	// Get creator identity
+	username := sanitizeLabelValue(os.Getenv("USER"))
+	if username == "" {
+		username = sanitizeLabelValue(os.Getenv("USERNAME"))
+	}
+	if username == "" {
+		username = "unknown"
+	}
+	email := sanitizeLabelValue(os.Getenv("EMAIL"))
+	if email == "" {
+		email = "unknown"
+	}
+	timestamp := fmt.Sprintf("%d", os.Getpid()) // Use PID for temp pods
+
+	// Build labels with creator identity
+	labels := fmt.Sprintf("created-by=%s,creator-email=%s,session-id=%s,operation=restore",
+		username, email, timestamp)
+
 	// Build psql arguments
 	psqlArgs := []string{
 		"-h", endpoint,
@@ -318,6 +391,7 @@ func (dm *DatabaseManager) runPsqlRestorePod(podName, endpoint, password string,
 		"--restart=Never",
 		"--namespace=tunnel-access",
 		"--image=postgres:15-alpine",
+		"--labels", labels,
 		fmt.Sprintf("--env=PGPASSWORD=%s", password),
 		"--",
 		"psql",

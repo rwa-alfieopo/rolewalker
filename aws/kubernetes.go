@@ -221,6 +221,12 @@ func (km *KubeManager) UpdateKubeconfig(clusterName, region string) error {
 // SwitchContextForEnv finds and switches to the kubectl context for the given environment
 // If the context doesn't exist, it will attempt to update the kubeconfig from AWS EKS
 func (km *KubeManager) SwitchContextForEnv(env string) error {
+	return km.SwitchContextForEnvWithProfile(env, nil)
+}
+
+// SwitchContextForEnvWithProfile finds and switches to the kubectl context for the given environment
+// If the context doesn't exist, it will attempt to switch AWS profile and update kubeconfig from AWS EKS
+func (km *KubeManager) SwitchContextForEnvWithProfile(env string, profileSwitcher *ProfileSwitcher) error {
 	// Map profile names to EKS cluster names
 	clusterMap := map[string]string{
 		"zenith-qa":      "qa-zenith-eks-cluster",
@@ -260,7 +266,16 @@ func (km *KubeManager) SwitchContextForEnv(env string) error {
 	// Try to find existing context
 	contextName, err := km.FindContextForEnv(env)
 	if err != nil {
-		// Context not found, try to update kubeconfig from AWS
+		// Context not found, need to update kubeconfig from AWS
+		// First, ensure we're using the correct AWS profile
+		if profileSwitcher != nil {
+			profileName := km.getProfileNameForEnv(env)
+			fmt.Printf("Switching to AWS profile: %s...\n", profileName)
+			if switchErr := profileSwitcher.SwitchProfile(profileName); switchErr != nil {
+				return fmt.Errorf("failed to switch AWS profile: %w", switchErr)
+			}
+		}
+		
 		region := "eu-west-2" // Default region for Zenith
 		if updateErr := km.UpdateKubeconfig(clusterName, region); updateErr != nil {
 			return fmt.Errorf("context not found and failed to update kubeconfig: %w", updateErr)
@@ -274,6 +289,38 @@ func (km *KubeManager) SwitchContextForEnv(env string) error {
 	}
 
 	return km.SwitchContext(contextName)
+}
+
+// getProfileNameForEnv returns the AWS profile name for a given environment
+func (km *KubeManager) getProfileNameForEnv(env string) string {
+	// Map environment names to AWS profile names
+	envToProfile := map[string]string{
+		"qa":      "zenith-qa",
+		"dev":     "zenith-dev",
+		"live":    "zenith-live",
+		"prod":    "zenith-live",
+		"sandbox": "zenith-sandbox",
+		"snd":     "zenith-sandbox",
+		"staging": "zenith-staging",
+		"stage":   "zenith-staging",
+		"preprod": "zenith-preprod",
+		"sit":     "zenith-sit",
+		"trg":     "zenith-trg",
+	}
+	
+	// Check if env is already a profile name
+	if strings.HasPrefix(env, "zenith-") {
+		return env
+	}
+	
+	// Extract env name and map to profile
+	envName := extractEnvName(env)
+	if profile, ok := envToProfile[envName]; ok {
+		return profile
+	}
+	
+	// Default: prepend zenith-
+	return "zenith-" + envName
 }
 
 // extractEnvName extracts the environment name from a profile name

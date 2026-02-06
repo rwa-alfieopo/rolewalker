@@ -16,10 +16,11 @@ import (
 
 // TunnelManager handles tunnel operations
 type TunnelManager struct {
-	kubeManager *KubeManager
-	ssmManager  *SSMManager
-	portConfig  *PortConfig
-	state       *TunnelState
+	kubeManager     *KubeManager
+	ssmManager      *SSMManager
+	portConfig      *PortConfig
+	state           *TunnelState
+	profileSwitcher *ProfileSwitcher
 }
 
 // TunnelConfig holds configuration for a tunnel
@@ -48,11 +49,14 @@ func NewTunnelManager() (*TunnelManager, error) {
 		return nil, err
 	}
 
+	ps, _ := NewProfileSwitcher()
+
 	return &TunnelManager{
-		kubeManager: NewKubeManager(),
-		ssmManager:  NewSSMManager(),
-		portConfig:  NewPortConfig(),
-		state:       state,
+		kubeManager:     NewKubeManager(),
+		ssmManager:      NewSSMManager(),
+		portConfig:      NewPortConfig(),
+		state:           state,
+		profileSwitcher: ps,
 	}, nil
 }
 
@@ -69,7 +73,7 @@ func (tm *TunnelManager) Start(config TunnelConfig) error {
 	}
 
 	// Switch kubectl context to the environment
-	if err := tm.kubeManager.SwitchContextForEnv(env); err != nil {
+	if err := tm.kubeManager.SwitchContextForEnvWithProfile(env, tm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 
@@ -167,11 +171,30 @@ func (tm *TunnelManager) getRemoteHost(service, env string, config TunnelConfig)
 
 // createSocatPod creates a socat pod for tunneling
 func (tm *TunnelManager) createSocatPod(podName, remoteHost string, remotePort int) error {
+	// Get creator identity
+	username := sanitizeUsername(os.Getenv("USER"))
+	if username == "" {
+		username = sanitizeUsername(os.Getenv("USERNAME"))
+	}
+	if username == "" {
+		username = "unknown"
+	}
+	email := sanitizeLabelValue(os.Getenv("EMAIL"))
+	if email == "" {
+		email = "unknown"
+	}
+	// Use Unix timestamp for labels (no special characters)
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+
+	// Build labels with creator identity
+	labels := fmt.Sprintf("name=%s,created-by=%s,created-at=%s,creator-email=%s",
+		podName, username, timestamp, email)
+
 	cmd := exec.Command("kubectl", "-n", "tunnel-access", "run", podName,
 		"--port", fmt.Sprintf("%d", remotePort),
 		"--image", "alpine/socat",
 		"--image-pull-policy", "IfNotPresent",
-		"--labels", fmt.Sprintf("name=%s", podName),
+		"--labels", labels,
 		"--command", "--",
 		"socat", fmt.Sprintf("tcp-listen:%d,fork,reuseaddr", remotePort),
 		fmt.Sprintf("tcp:%s:%d", remoteHost, remotePort),
@@ -370,6 +393,20 @@ func (tm *TunnelManager) CleanupStale() error {
 func sanitizeUsername(username string) string {
 	re := regexp.MustCompile(`[^a-zA-Z0-9-]`)
 	return re.ReplaceAllString(username, "")
+}
+
+// sanitizeLabelValue sanitizes a string to be a valid Kubernetes label value
+// Label values must be 63 characters or less and consist of alphanumeric characters, '-', '_' or '.'
+func sanitizeLabelValue(value string) string {
+	// Replace @ with 'at' and other special chars with '-'
+	value = strings.ReplaceAll(value, "@", "at")
+	re := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+	value = re.ReplaceAllString(value, "-")
+	// Trim to 63 characters max
+	if len(value) > 63 {
+		value = value[:63]
+	}
+	return value
 }
 
 // GetSupportedServices returns list of supported tunnel services

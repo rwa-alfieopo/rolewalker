@@ -26,13 +26,16 @@ var GRPCPorts = map[string]int{
 
 // GRPCManager handles gRPC port-forwarding operations
 type GRPCManager struct {
-	kubeManager *KubeManager
+	kubeManager     *KubeManager
+	profileSwitcher *ProfileSwitcher
 }
 
 // NewGRPCManager creates a new GRPCManager instance
 func NewGRPCManager() *GRPCManager {
+	ps, _ := NewProfileSwitcher()
 	return &GRPCManager{
-		kubeManager: NewKubeManager(),
+		kubeManager:     NewKubeManager(),
+		profileSwitcher: ps,
 	}
 }
 
@@ -101,7 +104,7 @@ func (gm *GRPCManager) Forward(service, env string) error {
 
 	// Switch kubectl context to the environment
 	fmt.Printf("Switching kubectl context to %s...\n", env)
-	if err := gm.kubeManager.SwitchContextForEnv(env); err != nil {
+	if err := gm.kubeManager.SwitchContextForEnvWithProfile(env, gm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 

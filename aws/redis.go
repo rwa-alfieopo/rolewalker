@@ -11,15 +11,18 @@ import (
 
 // RedisManager handles Redis connection operations
 type RedisManager struct {
-	kubeManager *KubeManager
-	ssmManager  *SSMManager
+	kubeManager     *KubeManager
+	ssmManager      *SSMManager
+	profileSwitcher *ProfileSwitcher
 }
 
 // NewRedisManager creates a new RedisManager instance
 func NewRedisManager() *RedisManager {
+	ps, _ := NewProfileSwitcher()
 	return &RedisManager{
-		kubeManager: NewKubeManager(),
-		ssmManager:  NewSSMManager(),
+		kubeManager:     NewKubeManager(),
+		ssmManager:      NewSSMManager(),
+		profileSwitcher: ps,
 	}
 }
 
@@ -29,7 +32,7 @@ func (rm *RedisManager) Connect(env string) error {
 
 	// Switch kubectl context to the environment
 	fmt.Printf("Switching kubectl context to %s...\n", env)
-	if err := rm.kubeManager.SwitchContextForEnv(env); err != nil {
+	if err := rm.kubeManager.SwitchContextForEnvWithProfile(env, rm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 
@@ -89,11 +92,30 @@ func parseRedisHost(endpoint string) string {
 
 // runRedisPod spawns an interactive redis-cli pod
 func (rm *RedisManager) runRedisPod(podName, host, password string) error {
+	// Get creator identity
+	username := sanitizeLabelValue(os.Getenv("USER"))
+	if username == "" {
+		username = sanitizeLabelValue(os.Getenv("USERNAME"))
+	}
+	if username == "" {
+		username = "unknown"
+	}
+	email := sanitizeLabelValue(os.Getenv("EMAIL"))
+	if email == "" {
+		email = "unknown"
+	}
+	timestamp := fmt.Sprintf("%d", os.Getpid()) // Use PID for temp pods
+
+	// Build labels with creator identity
+	labels := fmt.Sprintf("created-by=%s,creator-email=%s,session-id=%s",
+		username, email, timestamp)
+
 	cmd := exec.Command("kubectl", "run", podName,
 		"--rm", "-it",
 		"--restart=Never",
 		"--namespace=tunnel-access",
 		"--image=redis:7-alpine",
+		"--labels", labels,
 		"--",
 		"redis-cli",
 		"-h", host,

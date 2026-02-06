@@ -14,15 +14,18 @@ import (
 
 // MSKManager handles MSK Kafka UI operations
 type MSKManager struct {
-	kubeManager *KubeManager
-	ssmManager  *SSMManager
+	kubeManager     *KubeManager
+	ssmManager      *SSMManager
+	profileSwitcher *ProfileSwitcher
 }
 
 // NewMSKManager creates a new MSKManager instance
 func NewMSKManager() *MSKManager {
+	ps, _ := NewProfileSwitcher()
 	return &MSKManager{
-		kubeManager: NewKubeManager(),
-		ssmManager:  NewSSMManager(),
+		kubeManager:     NewKubeManager(),
+		ssmManager:      NewSSMManager(),
+		profileSwitcher: ps,
 	}
 }
 
@@ -32,7 +35,7 @@ func (mm *MSKManager) StartUI(env string, localPort int) error {
 
 	// Switch kubectl context to the environment
 	fmt.Printf("Switching kubectl context to %s...\n", env)
-	if err := mm.kubeManager.SwitchContextForEnv(env); err != nil {
+	if err := mm.kubeManager.SwitchContextForEnvWithProfile(env, mm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 
@@ -44,7 +47,16 @@ func (mm *MSKManager) StartUI(env string, localPort int) error {
 		return fmt.Errorf("failed to get MSK brokers: %w", err)
 	}
 
-	podName := fmt.Sprintf("kafka-ui-%s", env)
+	// Get username for pod name
+	username := sanitizeLabelValue(os.Getenv("USER"))
+	if username == "" {
+		username = sanitizeLabelValue(os.Getenv("USERNAME"))
+	}
+	if username == "" {
+		username = "user"
+	}
+
+	podName := fmt.Sprintf("kafka-ui-%s-%s", env, username)
 
 	// Check if pod already exists
 	if mm.podExists(podName) {
@@ -82,11 +94,20 @@ func (mm *MSKManager) StopUI(env string) error {
 
 	// Switch kubectl context to the environment
 	fmt.Printf("Switching kubectl context to %s...\n", env)
-	if err := mm.kubeManager.SwitchContextForEnv(env); err != nil {
+	if err := mm.kubeManager.SwitchContextForEnvWithProfile(env, mm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 
-	podName := fmt.Sprintf("kafka-ui-%s", env)
+	// Get username for pod name
+	username := sanitizeLabelValue(os.Getenv("USER"))
+	if username == "" {
+		username = sanitizeLabelValue(os.Getenv("USERNAME"))
+	}
+	if username == "" {
+		username = "user"
+	}
+
+	podName := fmt.Sprintf("kafka-ui-%s-%s", env, username)
 
 	if !mm.podExists(podName) {
 		return fmt.Errorf("pod %s not found in namespace default", podName)
@@ -103,9 +124,29 @@ func (mm *MSKManager) StopUI(env string) error {
 
 // createKafkaUIPod creates the Kafka UI pod with IAM authentication
 func (mm *MSKManager) createKafkaUIPod(podName, env, brokers string) error {
+	// Get creator identity
+	username := sanitizeLabelValue(os.Getenv("USER"))
+	if username == "" {
+		username = sanitizeLabelValue(os.Getenv("USERNAME"))
+	}
+	if username == "" {
+		username = "unknown"
+	}
+	email := sanitizeLabelValue(os.Getenv("EMAIL"))
+	if email == "" {
+		email = "unknown"
+	}
+	// Use Unix timestamp for labels (no special characters)
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+
+	// Build labels with creator identity
+	labels := fmt.Sprintf("created-by=%s,created-at=%s,creator-email=%s",
+		username, timestamp, email)
+
 	cmd := exec.Command("kubectl", "run", podName,
 		"--restart=Never",
 		"--image=provectuslabs/kafka-ui:latest",
+		"--labels", labels,
 		fmt.Sprintf("--env=KAFKA_CLUSTERS_0_NAME=%s", env),
 		fmt.Sprintf("--env=KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=%s", brokers),
 		"--env=KAFKA_CLUSTERS_0_PROPERTIES_SECURITY_PROTOCOL=SASL_SSL",

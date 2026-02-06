@@ -10,8 +10,9 @@ import (
 
 // ScalingManager handles HPA scaling operations
 type ScalingManager struct {
-	kubeManager *KubeManager
-	namespace   string
+	kubeManager     *KubeManager
+	profileSwitcher *ProfileSwitcher
+	namespace       string
 }
 
 // ScalingPreset defines min/max replicas for a preset
@@ -45,9 +46,11 @@ var Presets = map[string]ScalingPreset{
 
 // NewScalingManager creates a new ScalingManager instance
 func NewScalingManager() *ScalingManager {
+	ps, _ := NewProfileSwitcher()
 	return &ScalingManager{
-		kubeManager: NewKubeManager(),
-		namespace:   "zenith",
+		kubeManager:     NewKubeManager(),
+		profileSwitcher: ps,
+		namespace:       "zenith",
 	}
 }
 
@@ -77,7 +80,7 @@ func (sm *ScalingManager) Scale(env, presetName string) error {
 	}
 
 	// Switch to correct kubectl context
-	if err := sm.kubeManager.SwitchContextForEnv(env); err != nil {
+	if err := sm.kubeManager.SwitchContextForEnvWithProfile(env, sm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 
@@ -129,7 +132,7 @@ func (sm *ScalingManager) ScaleService(env, service string, min, max int) error 
 	}
 
 	// Switch to correct kubectl context
-	if err := sm.kubeManager.SwitchContextForEnv(env); err != nil {
+	if err := sm.kubeManager.SwitchContextForEnvWithProfile(env, sm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 
@@ -160,7 +163,7 @@ func (sm *ScalingManager) ListHPAs(env string) (string, error) {
 	}
 
 	// Switch to correct kubectl context
-	if err := sm.kubeManager.SwitchContextForEnv(env); err != nil {
+	if err := sm.kubeManager.SwitchContextForEnvWithProfile(env, sm.profileSwitcher); err != nil {
 		return "", fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 

@@ -405,7 +405,7 @@ button {
 .modal-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     margin-bottom: 20px;
     border-bottom: 2px solid #000;
     padding-bottom: 15px;
@@ -427,6 +427,7 @@ button {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .modal-close:hover {

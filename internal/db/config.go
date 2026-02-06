@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -550,4 +551,53 @@ func (r *ConfigRepository) AddAWSRole(accountID int, roleName, roleARN, profileN
 		profileName, region,
 		sql.NullString{String: description, Valid: description != ""})
 	return err
+}
+// UpdateAWSRole updates specific fields on an existing AWS role
+func (r *ConfigRepository) UpdateAWSRole(roleID int, updates map[string]interface{}) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	var setClauses []string
+	var args []interface{}
+
+	for key, value := range updates {
+		setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
+		args = append(args, value)
+	}
+
+	setClauses = append(setClauses, "updated_at = CURRENT_TIMESTAMP")
+	args = append(args, roleID)
+
+	query := fmt.Sprintf("UPDATE aws_roles SET %s WHERE id = ?", strings.Join(setClauses, ", "))
+	_, err := r.db.Exec(query, args...)
+	return err
+}
+
+// GetAllAWSRoles retrieves all active AWS roles
+func (r *ConfigRepository) GetAllAWSRoles() ([]AWSRole, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, account_id, role_name, role_arn, profile_name, region, description, active
+		FROM aws_roles
+		WHERE active = 1
+		ORDER BY profile_name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roles []AWSRole
+	for rows.Next() {
+		var role AWSRole
+		if err := rows.Scan(&role.ID, &role.AccountID, &role.RoleName, &role.RoleARN, &role.ProfileName, &role.Region, &role.Description, &role.Active); err != nil {
+			return nil, err
+		}
+		roles = append(roles, role)
+	}
+
+	return roles, rows.Err()
 }

@@ -37,36 +37,31 @@ func (rs *RoleSwitcher) SwitchRole(profileName string) error {
 	}
 
 	// Get the AWS account for this role
-	account, err := rs.dbRepo.GetAWSAccount(fmt.Sprintf("%d", role.AccountID))
+	account, err := rs.getAccountForRole(role)
 	if err != nil {
-		// Try to get account by ID directly
-		accounts, err := rs.dbRepo.GetAllAWSAccounts()
-		if err != nil {
-			return fmt.Errorf("failed to get accounts: %w", err)
-		}
-		
-		var foundAccount *db.AWSAccount
-		for _, acc := range accounts {
-			if acc.ID == role.AccountID {
-				foundAccount = &acc
-				break
-			}
-		}
-		
-		if foundAccount == nil {
-			return fmt.Errorf("account not found for role")
-		}
-		account = foundAccount
-	}
-
-	// Update AWS config default profile
-	if err := rs.updateDefaultProfileFromRole(role, account); err != nil {
-		return fmt.Errorf("failed to update AWS config: %w", err)
+		return err
 	}
 
 	// Create session in database
 	if err := rs.dbRepo.CreateUserSession(role.ID); err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
+	}
+
+	// Generate AWS config from database (rw manages the config)
+	configSync, err := NewConfigSync(rs.dbRepo)
+	if err == nil {
+		if err := configSync.WriteAWSConfig(); err != nil {
+			// Non-fatal: fall back to manual update
+			fmt.Printf("⚠ Could not regenerate config from DB: %v\n", err)
+			if err := rs.updateDefaultProfileFromRole(role, account); err != nil {
+				return fmt.Errorf("failed to update AWS config: %w", err)
+			}
+		}
+	} else {
+		// Fall back to manual update
+		if err := rs.updateDefaultProfileFromRole(role, account); err != nil {
+			return fmt.Errorf("failed to update AWS config: %w", err)
+		}
 	}
 
 	// Write active profile file for shell integration
@@ -87,6 +82,26 @@ func (rs *RoleSwitcher) SwitchRole(profileName string) error {
 	}
 
 	return nil
+}
+
+// getAccountForRole finds the AWS account for a given role
+func (rs *RoleSwitcher) getAccountForRole(role *db.AWSRole) (*db.AWSAccount, error) {
+	account, err := rs.dbRepo.GetAWSAccount(fmt.Sprintf("%d", role.AccountID))
+	if err != nil {
+		accounts, err := rs.dbRepo.GetAllAWSAccounts()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get accounts: %w", err)
+		}
+
+		for _, acc := range accounts {
+			if acc.ID == role.AccountID {
+				return &acc, nil
+			}
+		}
+
+		return nil, fmt.Errorf("account not found for role")
+	}
+	return account, nil
 }
 
 // updateDefaultProfileFromRole updates the [default] section in AWS config

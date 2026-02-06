@@ -78,6 +78,66 @@ func ConfirmReplicationDelete(deploymentName string, deleteTarget bool) bool {
 	
 	return ConfirmAction(message)
 }
+// IsProductionEnvironment checks if the given environment is a production environment
+func IsProductionEnvironment(env string) bool {
+	prodEnvs := []string{"prod", "preprod", "trg", "live"}
+	envLower := strings.ToLower(env)
+	
+	for _, prodEnv := range prodEnvs {
+		if envLower == prodEnv {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// ConfirmProductionOperation prompts for confirmation before executing operations in production
+// Returns true if user types 'yes', false otherwise
+func ConfirmProductionOperation(env, operation string) bool {
+	if !IsProductionEnvironment(env) {
+		return true // No confirmation needed for non-production
+	}
+	
+	// ANSI color codes
+	const (
+		redBg     = "\033[41m"  // Red background
+		whiteFg   = "\033[97m"  // White foreground
+		bold      = "\033[1m"   // Bold text
+		reset     = "\033[0m"   // Reset all formatting
+		redFg     = "\033[31m"  // Red foreground
+	)
+	
+	// Print warning with red background
+	fmt.Printf("\n%s%s%s", redBg, whiteFg, bold)
+	fmt.Printf("                                                                    ")
+	fmt.Printf("%s\n", reset)
+	
+	fmt.Printf("%s%s%s", redBg, whiteFg, bold)
+	fmt.Printf("  🚨  PRODUCTION ENVIRONMENT DETECTED  🚨                           ")
+	fmt.Printf("%s\n", reset)
+	
+	fmt.Printf("%s%s%s", redBg, whiteFg, bold)
+	fmt.Printf("                                                                    ")
+	fmt.Printf("%s\n\n", reset)
+	
+	fmt.Printf("%s%sEnvironment:%s %s\n", bold, redFg, reset, strings.ToUpper(env))
+	fmt.Printf("%s%sOperation:%s   %s\n\n", bold, redFg, reset, operation)
+	
+	fmt.Println("You are about to perform an operation in a PRODUCTION environment.")
+	fmt.Println("Please ensure you have proper authorization and have reviewed the changes.")
+	fmt.Printf("\n%s%sType 'yes' to confirm:%s ", bold, redFg, reset)
+	
+	reader := bufio.NewReader(os.Stdin)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return false
+	}
+
+	response = strings.TrimSpace(strings.ToLower(response))
+	return response == "yes"
+}
+
 // SelectFromList prompts the user to select an item from a list
 // Returns the selected item and true, or empty string and false if cancelled
 func SelectFromList(prompt string, items []string) (string, bool) {

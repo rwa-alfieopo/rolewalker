@@ -124,6 +124,8 @@ func (c *CLI) Run(args []string) error {
 		return c.status()
 	case "current":
 		return c.current()
+	case "context":
+		return c.context(cmdArgs)
 	case "kube", "k8s":
 		return c.kube(cmdArgs)
 	case "db":
@@ -150,10 +152,68 @@ func (c *CLI) Run(args []string) error {
 		return c.ssm(cmdArgs)
 	case "help", "--help", "-h":
 		return c.showHelp()
+	case "example", "examples":
+		return c.example()
 	default:
 		return fmt.Errorf("unknown command: %s\nRun 'rwcli help' for usage", command)
 	}
 }
+func (c *CLI) example() error {
+	examples := []string{
+		"# Profile Management",
+		"rwcli list                          # List all available AWS profiles",
+		"rwcli switch dev                    # Switch to dev profile",
+		"rwcli switch prod --no-kube         # Switch to prod without kubectl context",
+		"rwcli login staging                 # Login to staging profile",
+		"rwcli status                        # Show status of all profiles",
+		"rwcli current                       # Show current active profile",
+		"rwcli context                       # Show compact context info",
+		"rwcli context --format short        # Output for shell prompts",
+		"rwcli context --format json         # JSON output",
+		"",
+		"# Kubernetes",
+		"rwcli kube                          # Show current kubectl context",
+		"rwcli kube set-namespace            # Set default namespace",
+		"rwcli kube pods                     # List pods in current namespace",
+		"",
+		"# Database",
+		"rwcli db connect                    # Connect to database",
+		"rwcli db backup                     # Create database backup",
+		"rwcli db restore backup.sql         # Restore from backup",
+		"",
+		"# Tunnels & Port Forwarding",
+		"rwcli tunnel start db               # Start database tunnel",
+		"rwcli tunnel stop db                # Stop database tunnel",
+		"rwcli port list                     # List available port forwards",
+		"",
+		"# Services",
+		"rwcli grpc                          # Connect to gRPC service",
+		"rwcli redis connect                 # Connect to Redis",
+		"rwcli msk ui                        # Open Kafka UI",
+		"",
+		"# Maintenance & Scaling",
+		"rwcli maintenance status            # Check maintenance mode",
+		"rwcli maintenance on                # Enable maintenance mode",
+		"rwcli scale list                    # List scalable resources",
+		"rwcli scale deployment api 3        # Scale API deployment to 3 replicas",
+		"",
+		"# SSM Parameters",
+		"rwcli ssm get /app/config           # Get SSM parameter",
+		"rwcli ssm list /app/                # List SSM parameters",
+		"",
+		"# Replication",
+		"rwcli replication status            # Check replication status",
+		"rwcli replication switch primary    # Switch to primary",
+	}
+
+	fmt.Println("Examples:")
+	fmt.Println()
+	for _, example := range examples {
+		fmt.Println(example)
+	}
+	return nil
+}
+
 
 func (c *CLI) showHelp() error {
 	help := `rolewalkers (rwcli) - AWS Profile & SSO Manager
@@ -168,6 +228,9 @@ Commands:
   logout <profile>      SSO logout for a profile
   status                Show login status for all SSO profiles
   current               Show current active profile
+  context [--format]    Show compact context (profile, account, eks, namespace)
+    --format short      Compact format for shell prompts
+    --format json       JSON output
   kube <env>            Switch kubectl context to environment
   kube list             List available kubectl contexts
   kube set namespace    Interactively set default namespace
@@ -215,48 +278,10 @@ Commands:
   ssm list <prefix>     List parameters under a path prefix
   keygen [count]        Generate cryptographically secure API keys
   help                  Show this help message
+  example               Show usage examples
 
 Tunnel Services: db, redis, elasticsearch, kafka, msk, rabbitmq, grpc
 gRPC Services: candidate, job, client, organisation, user, email, billing, core
-
-Examples:
-  rwcli list                     # List all profiles
-  rwcli switch zenith-dev        # Switch AWS profile + k8s context
-  rwcli switch zenith-dev --no-kube # Switch AWS profile only
-  rwcli login my-sso-profile     # Login via SSO
-  rwcli kube dev                 # Switch only k8s context
-  rwcli port db dev              # Get database port for dev
-  rwcli db connect dev           # Connect to dev query database (read node)
-  rwcli db connect prod --write  # Connect to prod write node
-  rwcli db connect prod --command # Connect to command database
-  rwcli db backup dev --output ./backup.sql
-  rwcli db backup dev --output ./schema.sql --schema-only
-  rwcli db restore dev --input ./backup.sql
-  rwcli db restore dev --input ./backup.sql --clean --yes
-  rwcli redis connect dev        # Connect to dev Redis cluster
-  rwcli redis connect prod       # Connect to prod Redis cluster
-  rwcli msk ui dev               # Start Kafka UI on localhost:8080
-  rwcli msk ui prod --port 9090  # Start Kafka UI on custom port
-  rwcli msk stop dev             # Stop the Kafka UI pod
-  rwcli maintenance dev --type api --enable   # Enable API maintenance
-  rwcli maintenance prod --type all --disable # Disable all maintenance
-  rwcli maintenance status dev                # Check maintenance status
-  rwcli scale preprod --preset performance    # Scale up for performance testing
-  rwcli scale prod --preset normal            # Reset to normal scaling
-  rwcli scale dev --service candidate --min 5 --max 10  # Custom scaling
-  rwcli scale list dev                        # List HPAs and scaling
-  rwcli replication status dev                # Show Blue-Green deployments
-  rwcli replication switch bgd-abc123 --yes   # Switchover deployment
-  rwcli replication create dev --name my-bg --source prod-db-cluster
-  rwcli replication delete bgd-abc123 --yes   # Delete deployment
-  rwcli tunnel start db dev      # Start database tunnel to dev
-  rwcli tunnel start redis prod  # Start redis tunnel to prod
-  rwcli tunnel list              # Show active tunnels
-  rwcli grpc candidate dev       # Forward localhost:5001 to candidate-microservice-grpc
-  rwcli grpc job prod            # Forward localhost:5002 to job-microservice-grpc
-  rwcli grpc list                # List all gRPC services and ports
-  rwcli ssm get /dev/zenith/database/query/db-write-endpoint
-  rwcli ssm list /dev/zenith/   # List all params under prefix
 `
 	fmt.Println(help)
 	return nil
@@ -454,6 +479,88 @@ func (c *CLI) current() error {
 		fmt.Printf("⚠ AWS_DEFAULT_REGION env override: %s\n", envRegion)
 	}
 
+	return nil
+}
+
+func (c *CLI) context(args []string) error {
+	format := "default"
+	
+	// Parse format flag
+	for _, arg := range args {
+		if arg == "--format" {
+			continue
+		}
+		if arg == "short" || arg == "json" {
+			format = arg
+		}
+	}
+	
+	// Get AWS profile info
+	activeProfile := c.configManager.GetActiveProfile()
+	region := c.profileSwitcher.GetDefaultRegion()
+	
+	accountID := ""
+	accountName := ""
+	profiles, err := c.configManager.GetProfiles()
+	if err == nil {
+		for _, p := range profiles {
+			if p.Name == activeProfile && p.IsSSO {
+				accountID = p.SSOAccountID
+				accountName = c.extractAccountName(p.Name)
+				break
+			}
+		}
+	}
+	
+	// Get Kubernetes info
+	kubeContext := ""
+	namespace := ""
+	if ctx, err := c.kubeManager.GetCurrentContext(); err == nil {
+		kubeContext = ctx
+		// Extract just the cluster name (remove arn prefix if present)
+		if strings.Contains(kubeContext, "/") {
+			parts := strings.Split(kubeContext, "/")
+			kubeContext = parts[len(parts)-1]
+		}
+	}
+	
+	ns := c.kubeManager.GetCurrentNamespace()
+	if ns != "" {
+		namespace = ns
+	} else {
+		namespace = "default"
+	}
+	
+	// Output based on format
+	switch format {
+	case "short":
+		// Compact format for shell prompts: profile|account|eks|namespace
+		fmt.Printf("%s|%s|%s|%s\n", activeProfile, accountName, kubeContext, namespace)
+		
+	case "json":
+		// JSON format
+		fmt.Printf(`{"profile":"%s","account_name":"%s","account_id":"%s","region":"%s","eks_cluster":"%s","namespace":"%s"}`+"\n",
+			activeProfile, accountName, accountID, region, kubeContext, namespace)
+		
+	default:
+		// Human-readable format
+		fmt.Printf("Profile:   %s\n", activeProfile)
+		if accountName != "" {
+			fmt.Printf("Account:   %s", accountName)
+			if accountID != "" {
+				fmt.Printf(" (%s)", accountID)
+			}
+			fmt.Println()
+		}
+		if region != "" {
+			fmt.Printf("Region:    %s\n", region)
+		}
+		if kubeContext != "" {
+			fmt.Printf("EKS:       %s\n", kubeContext)
+			fmt.Printf("Namespace: %s\n", namespace)
+		}
+	}
+	
 	return nil
 }
 
@@ -1039,6 +1146,16 @@ func (c *CLI) maintenanceToggle(args []string) error {
 		return fmt.Errorf("cannot use both --enable and --disable")
 	}
 
+	// Production safety guard
+	operation := "Enable Maintenance Mode"
+	if disable {
+		operation = "Disable Maintenance Mode"
+	}
+	if !utils.ConfirmProductionOperation(env, operation) {
+		fmt.Println("Operation cancelled.")
+		return nil
+	}
+
 	return c.maintenanceManager.Toggle(env, serviceType, enable)
 }
 
@@ -1108,6 +1225,12 @@ func (c *CLI) scale(args []string) error {
 		return fmt.Errorf("environment is required")
 	}
 
+	// Production safety guard
+	if !utils.ConfirmProductionOperation(env, fmt.Sprintf("Scale using preset '%s'", preset)) {
+		fmt.Println("Operation cancelled.")
+		return nil
+	}
+
 	// Determine which scaling mode to use
 	if preset != "" {
 		// Preset mode - scale all HPAs
@@ -1119,6 +1242,13 @@ func (c *CLI) scale(args []string) error {
 		if minReplicas < 0 || maxReplicas < 0 {
 			return fmt.Errorf("--min and --max are required when using --service")
 		}
+		
+		// Production safety guard for service scaling
+		if !utils.ConfirmProductionOperation(env, fmt.Sprintf("Scale service '%s' to min=%d max=%d", service, minReplicas, maxReplicas)) {
+			fmt.Println("Operation cancelled.")
+			return nil
+		}
+		
 		return c.scalingManager.ScaleService(env, service, minReplicas, maxReplicas)
 	}
 
@@ -1263,6 +1393,14 @@ func (c *CLI) dbRestore(args []string) error {
 
 	if config.InputFile == "" {
 		return fmt.Errorf("--input is required\n\nUsage: rwcli db restore <env> --input <file>")
+	}
+
+	// Production safety guard
+	if !skipConfirm {
+		if !utils.ConfirmProductionOperation(config.Environment, "Database Restore") {
+			fmt.Println("Operation cancelled.")
+			return nil
+		}
 	}
 
 	// Confirmation prompt for restore operations

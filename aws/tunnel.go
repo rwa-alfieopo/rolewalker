@@ -8,7 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"regexp"
+	"rolewalkers/internal/k8s"
+	"rolewalkers/internal/utils"
 	"strings"
 	"syscall"
 	"time"
@@ -97,9 +98,9 @@ func (tm *TunnelManager) Start(config TunnelConfig) error {
 	}
 
 	// Generate pod name
-	username := sanitizeUsername(os.Getenv("USER"))
+	username := utils.SanitizeUsername(os.Getenv("USER"))
 	if username == "" {
-		username = sanitizeUsername(os.Getenv("USERNAME"))
+		username = utils.SanitizeUsername(os.Getenv("USERNAME"))
 	}
 	if username == "" {
 		username = "user"
@@ -171,24 +172,8 @@ func (tm *TunnelManager) getRemoteHost(service, env string, config TunnelConfig)
 
 // createSocatPod creates a socat pod for tunneling
 func (tm *TunnelManager) createSocatPod(podName, remoteHost string, remotePort int) error {
-	// Get creator identity
-	username := sanitizeUsername(os.Getenv("USER"))
-	if username == "" {
-		username = sanitizeUsername(os.Getenv("USERNAME"))
-	}
-	if username == "" {
-		username = "unknown"
-	}
-	email := sanitizeLabelValue(os.Getenv("EMAIL"))
-	if email == "" {
-		email = "unknown"
-	}
-	// Use Unix timestamp for labels (no special characters)
-	timestamp := fmt.Sprintf("%d", time.Now().Unix())
-
 	// Build labels with creator identity
-	labels := fmt.Sprintf("name=%s,created-by=%s,created-at=%s,creator-email=%s",
-		podName, username, timestamp, email)
+	labels := k8s.CreatorLabelsWithName(podName)
 
 	cmd := exec.Command("kubectl", "-n", "tunnel-access", "run", podName,
 		"--port", fmt.Sprintf("%d", remotePort),
@@ -387,26 +372,6 @@ func (tm *TunnelManager) CleanupStale() error {
 	}
 
 	return nil
-}
-
-// sanitizeUsername removes non-alphanumeric characters from username
-func sanitizeUsername(username string) string {
-	re := regexp.MustCompile(`[^a-zA-Z0-9-]`)
-	return re.ReplaceAllString(username, "")
-}
-
-// sanitizeLabelValue sanitizes a string to be a valid Kubernetes label value
-// Label values must be 63 characters or less and consist of alphanumeric characters, '-', '_' or '.'
-func sanitizeLabelValue(value string) string {
-	// Replace @ with 'at' and other special chars with '-'
-	value = strings.ReplaceAll(value, "@", "at")
-	re := regexp.MustCompile(`[^a-zA-Z0-9._-]`)
-	value = re.ReplaceAllString(value, "-")
-	// Trim to 63 characters max
-	if len(value) > 63 {
-		value = value[:63]
-	}
-	return value
 }
 
 // GetSupportedServices returns list of supported tunnel services

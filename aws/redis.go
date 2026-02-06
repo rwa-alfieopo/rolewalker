@@ -5,7 +5,8 @@ import (
 	"math/rand"
 	"os"
 	"os/exec"
-	"regexp"
+	"rolewalkers/internal/k8s"
+	"rolewalkers/internal/utils"
 	"strings"
 )
 
@@ -56,9 +57,9 @@ func (rm *RedisManager) Connect(env string) error {
 	host := parseRedisHost(endpoint)
 
 	// Generate unique pod name
-	username := sanitizeRedisUsername(os.Getenv("USER"))
+	username := utils.SanitizeUsername(os.Getenv("USER"))
 	if username == "" {
-		username = sanitizeRedisUsername(os.Getenv("USERNAME"))
+		username = utils.SanitizeUsername(os.Getenv("USERNAME"))
 	}
 	if username == "" {
 		username = "user"
@@ -72,7 +73,8 @@ func (rm *RedisManager) Connect(env string) error {
 	fmt.Printf("  User:        zenithmaster\n")
 	fmt.Printf("  Pod:         %s\n", podName)
 	fmt.Println("\nStarting interactive redis-cli session (cluster mode)...")
-	fmt.Println("(Type 'quit' or Ctrl+D to exit)\n")
+	fmt.Println("(Type 'quit' or Ctrl+D to exit)")
+	fmt.Println()
 
 	return rm.runRedisPod(podName, host, password)
 }
@@ -92,23 +94,8 @@ func parseRedisHost(endpoint string) string {
 
 // runRedisPod spawns an interactive redis-cli pod
 func (rm *RedisManager) runRedisPod(podName, host, password string) error {
-	// Get creator identity
-	username := sanitizeLabelValue(os.Getenv("USER"))
-	if username == "" {
-		username = sanitizeLabelValue(os.Getenv("USERNAME"))
-	}
-	if username == "" {
-		username = "unknown"
-	}
-	email := sanitizeLabelValue(os.Getenv("EMAIL"))
-	if email == "" {
-		email = "unknown"
-	}
-	timestamp := fmt.Sprintf("%d", os.Getpid()) // Use PID for temp pods
-
 	// Build labels with creator identity
-	labels := fmt.Sprintf("created-by=%s,creator-email=%s,session-id=%s",
-		username, email, timestamp)
+	labels := k8s.CreatorLabelsWithSession()
 
 	cmd := exec.Command("kubectl", "run", podName,
 		"--rm", "-it",
@@ -142,15 +129,4 @@ func (rm *RedisManager) runRedisPod(podName, host, password string) error {
 	}
 
 	return err
-}
-
-// sanitizeRedisUsername removes non-alphanumeric characters and lowercases username
-func sanitizeRedisUsername(username string) string {
-	username = strings.ToLower(username)
-	re := regexp.MustCompile(`[^a-z0-9-]`)
-	result := re.ReplaceAllString(username, "")
-	if len(result) > 20 {
-		result = result[:20]
-	}
-	return result
 }

@@ -1,13 +1,13 @@
 package aws
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"math/rand"
 	"os"
 	"os/exec"
-	"regexp"
+	"rolewalkers/internal/k8s"
+	"rolewalkers/internal/utils"
 	"strings"
 )
 
@@ -71,9 +71,9 @@ func (dm *DatabaseManager) Connect(config DatabaseConfig) error {
 	}
 
 	// Generate unique pod name
-	username := sanitizeUsername(os.Getenv("USER"))
+	username := utils.SanitizeUsername(os.Getenv("USER"))
 	if username == "" {
-		username = sanitizeUsername(os.Getenv("USERNAME"))
+		username = utils.SanitizeUsername(os.Getenv("USERNAME"))
 	}
 	if username == "" {
 		username = "user"
@@ -87,30 +87,16 @@ func (dm *DatabaseManager) Connect(config DatabaseConfig) error {
 	fmt.Printf("  User:        zenithmaster\n")
 	fmt.Printf("  Pod:         %s\n", podName)
 	fmt.Println("\nStarting interactive psql session...")
-	fmt.Println("(Type \\q or Ctrl+D to exit)\n")
+	fmt.Println("(Type \\q or Ctrl+D to exit)")
+	fmt.Println()
 
 	return dm.runPsqlPod(podName, endpoint, password)
 }
 
 // runPsqlPod spawns an interactive psql pod
 func (dm *DatabaseManager) runPsqlPod(podName, endpoint, password string) error {
-	// Get creator identity
-	username := sanitizeLabelValue(os.Getenv("USER"))
-	if username == "" {
-		username = sanitizeLabelValue(os.Getenv("USERNAME"))
-	}
-	if username == "" {
-		username = "unknown"
-	}
-	email := sanitizeLabelValue(os.Getenv("EMAIL"))
-	if email == "" {
-		email = "unknown"
-	}
-	timestamp := fmt.Sprintf("%d", os.Getpid()) // Use PID for temp pods
-
 	// Build labels with creator identity
-	labels := fmt.Sprintf("created-by=%s,creator-email=%s,session-id=%s",
-		username, email, timestamp)
+	labels := k8s.CreatorLabelsWithSession()
 
 	cmd := exec.Command("kubectl", "run", podName,
 		"--rm", "-it",
@@ -143,15 +129,7 @@ func (dm *DatabaseManager) runPsqlPod(podName, endpoint, password string) error 
 	return err
 }
 
-// sanitizeUsername removes non-alphanumeric characters from username
-func sanitizeDBUsername(username string) string {
-	re := regexp.MustCompile(`[^a-zA-Z0-9-]`)
-	result := re.ReplaceAllString(username, "")
-	if len(result) > 20 {
-		result = result[:20]
-	}
-	return result
-}
+
 
 // BackupConfig holds configuration for database backup
 type BackupConfig struct {
@@ -193,11 +171,8 @@ func (dm *DatabaseManager) Backup(config BackupConfig) error {
 	}
 
 	// Generate unique pod name with username
-	username := sanitizeLabelValue(os.Getenv("USER"))
-	if username == "" {
-		username = sanitizeLabelValue(os.Getenv("USERNAME"))
-	}
-	if username == "" {
+	username := utils.GetCurrentUsername()
+	if username == "unknown" {
 		username = "user"
 	}
 	podName := fmt.Sprintf("pgdump-%s-%d", username, rand.Intn(100000))
@@ -219,23 +194,8 @@ func (dm *DatabaseManager) Backup(config BackupConfig) error {
 
 // runPgDumpPod spawns a temporary pod to run pg_dump and captures output to file
 func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, config BackupConfig) error {
-	// Get creator identity
-	username := sanitizeLabelValue(os.Getenv("USER"))
-	if username == "" {
-		username = sanitizeLabelValue(os.Getenv("USERNAME"))
-	}
-	if username == "" {
-		username = "unknown"
-	}
-	email := sanitizeLabelValue(os.Getenv("EMAIL"))
-	if email == "" {
-		email = "unknown"
-	}
-	timestamp := fmt.Sprintf("%d", os.Getpid()) // Use PID for temp pods
-
 	// Build labels with creator identity
-	labels := fmt.Sprintf("created-by=%s,creator-email=%s,session-id=%s,operation=backup",
-		username, email, timestamp)
+	labels := k8s.CreatorLabelsWithOperation("backup")
 
 	// Build pg_dump arguments
 	pgDumpArgs := []string{
@@ -289,7 +249,7 @@ func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, conf
 
 	fmt.Printf("\n✓ Backup completed successfully!\n")
 	fmt.Printf("  Output file: %s\n", config.OutputFile)
-	fmt.Printf("  Size: %s\n", formatBytes(size))
+	fmt.Printf("  Size: %s\n", utils.FormatBytes(size))
 
 	return nil
 }
@@ -325,11 +285,8 @@ func (dm *DatabaseManager) Restore(config RestoreConfig) error {
 	}
 
 	// Generate unique pod name with username
-	username := sanitizeLabelValue(os.Getenv("USER"))
-	if username == "" {
-		username = sanitizeLabelValue(os.Getenv("USERNAME"))
-	}
-	if username == "" {
+	username := utils.GetCurrentUsername()
+	if username == "unknown" {
 		username = "user"
 	}
 	podName := fmt.Sprintf("pgrestore-%s-%d", username, rand.Intn(100000))
@@ -340,7 +297,7 @@ func (dm *DatabaseManager) Restore(config RestoreConfig) error {
 	fmt.Printf("\nStarting database restore:\n")
 	fmt.Printf("  Environment: %s\n", env)
 	fmt.Printf("  Endpoint:    %s\n", endpoint)
-	fmt.Printf("  Input:       %s (%s)\n", config.InputFile, formatBytes(fileInfo.Size()))
+	fmt.Printf("  Input:       %s (%s)\n", config.InputFile, utils.FormatBytes(fileInfo.Size()))
 	if config.Clean {
 		fmt.Printf("  Mode:        Clean (drop objects before recreating)\n")
 	} else {
@@ -354,23 +311,8 @@ func (dm *DatabaseManager) Restore(config RestoreConfig) error {
 
 // runPsqlRestorePod spawns a temporary pod to run psql and pipes SQL file to stdin
 func (dm *DatabaseManager) runPsqlRestorePod(podName, endpoint, password string, config RestoreConfig) error {
-	// Get creator identity
-	username := sanitizeLabelValue(os.Getenv("USER"))
-	if username == "" {
-		username = sanitizeLabelValue(os.Getenv("USERNAME"))
-	}
-	if username == "" {
-		username = "unknown"
-	}
-	email := sanitizeLabelValue(os.Getenv("EMAIL"))
-	if email == "" {
-		email = "unknown"
-	}
-	timestamp := fmt.Sprintf("%d", os.Getpid()) // Use PID for temp pods
-
 	// Build labels with creator identity
-	labels := fmt.Sprintf("created-by=%s,creator-email=%s,session-id=%s,operation=restore",
-		username, email, timestamp)
+	labels := k8s.CreatorLabelsWithOperation("restore")
 
 	// Build psql arguments
 	psqlArgs := []string{
@@ -429,32 +371,5 @@ func (dm *DatabaseManager) runPsqlRestorePod(podName, endpoint, password string,
 
 // ConfirmRestore prompts the user for confirmation before restore
 func ConfirmRestore(env, inputFile string) bool {
-	fmt.Printf("\n⚠️  WARNING: You are about to restore a database backup!\n")
-	fmt.Printf("   Environment: %s\n", env)
-	fmt.Printf("   Input file:  %s\n", inputFile)
-	fmt.Printf("\n   This operation may overwrite existing data.\n")
-	fmt.Printf("\n   Type 'yes' to confirm: ")
-
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return false
-	}
-
-	response = strings.TrimSpace(strings.ToLower(response))
-	return response == "yes"
-}
-
-// formatBytes formats bytes into human-readable format
-func formatBytes(bytes int64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+	return utils.ConfirmDatabaseRestore(env, inputFile)
 }

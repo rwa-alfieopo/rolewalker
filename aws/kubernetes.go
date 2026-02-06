@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
-	"runtime"
+	"rolewalkers/internal/awscli"
 	"strings"
 )
 
@@ -194,19 +194,10 @@ func (km *KubeManager) FindContextForEnv(env string) (string, error) {
 func (km *KubeManager) UpdateKubeconfig(clusterName, region string) error {
 	fmt.Printf("Updating kubeconfig for cluster: %s...\n", clusterName)
 	
-	// Create OS-compatible AWS CLI command
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", "aws", "eks", "update-kubeconfig",
-			"--name", clusterName,
-			"--region", region,
-		)
-	} else {
-		cmd = exec.Command("aws", "eks", "update-kubeconfig",
-			"--name", clusterName,
-			"--region", region,
-		)
-	}
+	cmd := awscli.CreateCommand("eks", "update-kubeconfig",
+		"--name", clusterName,
+		"--region", region,
+	)
 	
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

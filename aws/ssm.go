@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os/exec"
-	"runtime"
+	"rolewalkers/internal/awscli"
 	"strings"
 )
 
@@ -30,21 +29,11 @@ type ssmResponse struct {
 
 // GetParameter retrieves a parameter from SSM Parameter Store
 func (sm *SSMManager) GetParameter(name string) (string, error) {
-	// Create command with proper OS-compatible execution
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", "aws", "ssm", "get-parameter",
-			"--name", name,
-			"--with-decryption",
-			"--region", sm.region,
-		)
-	} else {
-		cmd = exec.Command("aws", "ssm", "get-parameter",
-			"--name", name,
-			"--with-decryption",
-			"--region", sm.region,
-		)
-	}
+	cmd := awscli.CreateCommand("ssm", "get-parameter",
+		"--name", name,
+		"--with-decryption",
+		"--region", sm.region,
+	)
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer
@@ -130,21 +119,11 @@ type ssmListResponse struct {
 
 // ListParameters lists all parameters under a given path prefix
 func (sm *SSMManager) ListParameters(prefix string) ([]string, error) {
-	// Create command with proper OS-compatible execution
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/C", "aws", "ssm", "get-parameters-by-path",
-			"--path", prefix,
-			"--recursive",
-			"--region", sm.region,
-		)
-	} else {
-		cmd = exec.Command("aws", "ssm", "get-parameters-by-path",
-			"--path", prefix,
-			"--recursive",
-			"--region", sm.region,
-		)
-	}
+	cmd := awscli.CreateCommand("ssm", "get-parameters-by-path",
+		"--path", prefix,
+		"--recursive",
+		"--region", sm.region,
+	)
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer

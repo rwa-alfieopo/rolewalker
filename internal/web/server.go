@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -51,6 +53,226 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type ValidationError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+type ValidationErrorResponse struct {
+	Error  string             `json:"error"`
+	Fields []ValidationError  `json:"fields,omitempty"`
+}
+
+// Validation helper functions
+func isValidAccountID(accountID string) bool {
+	// Account ID must be exactly 12 digits
+	if len(accountID) != 12 {
+		return false
+	}
+	for _, c := range accountID {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func isValidAccountName(name string) bool {
+	// Non-empty and max 255 characters
+	return len(name) > 0 && len(name) <= 255
+}
+
+func isValidURL(urlStr string) bool {
+	_, err := url.Parse(urlStr)
+	if err != nil {
+		return false
+	}
+	// Must be a valid HTTP/HTTPS URL
+	u, _ := url.Parse(urlStr)
+	return u.Scheme == "http" || u.Scheme == "https"
+}
+
+func isValidRegion(region string) bool {
+	// Non-empty region
+	return len(strings.TrimSpace(region)) > 0
+}
+
+func isValidRoleName(name string) bool {
+	// Non-empty and max 255 characters
+	return len(name) > 0 && len(name) <= 255
+}
+
+func isValidARN(arn string) bool {
+	// ARN format: arn:partition:service:region:account-id:resource
+	// For IAM roles: arn:aws:iam::account-id:role/role-name
+	if !strings.HasPrefix(arn, "arn:") {
+		return false
+	}
+	parts := strings.Split(arn, ":")
+	if len(parts) < 6 {
+		return false
+	}
+	// Check if it contains "role" in the resource part
+	return strings.Contains(arn, "role")
+}
+
+func isValidProfileName(name string) bool {
+	// Non-empty and max 255 characters
+	return len(name) > 0 && len(name) <= 255
+}
+
+func validateAddAccountRequest(req struct {
+	AccountID   string `json:"account_id"`
+	AccountName string `json:"account_name"`
+	SSOStartURL string `json:"sso_start_url"`
+	SSORegion   string `json:"sso_region"`
+	Description string `json:"description"`
+}) []ValidationError {
+	var errors []ValidationError
+
+	if !isValidAccountID(req.AccountID) {
+		errors = append(errors, ValidationError{
+			Field:   "account_id",
+			Message: "Account ID must be exactly 12 digits",
+		})
+	}
+
+	if !isValidAccountName(req.AccountName) {
+		errors = append(errors, ValidationError{
+			Field:   "account_name",
+			Message: "Account name must be non-empty and max 255 characters",
+		})
+	}
+
+	if req.SSOStartURL != "" && !isValidURL(req.SSOStartURL) {
+		errors = append(errors, ValidationError{
+			Field:   "sso_start_url",
+			Message: "SSO start URL must be a valid HTTP/HTTPS URL",
+		})
+	}
+
+	if !isValidRegion(req.SSORegion) {
+		errors = append(errors, ValidationError{
+			Field:   "sso_region",
+			Message: "SSO region must be non-empty",
+		})
+	}
+
+	return errors
+}
+
+func validateAddRoleRequest(req struct {
+	AccountID   int    `json:"account_id"`
+	RoleName    string `json:"role_name"`
+	RoleARN     string `json:"role_arn"`
+	ProfileName string `json:"profile_name"`
+	Region      string `json:"region"`
+	Description string `json:"description"`
+}) []ValidationError {
+	var errors []ValidationError
+
+	if !isValidRoleName(req.RoleName) {
+		errors = append(errors, ValidationError{
+			Field:   "role_name",
+			Message: "Role name must be non-empty and max 255 characters",
+		})
+	}
+
+	if req.RoleARN != "" && !isValidARN(req.RoleARN) {
+		errors = append(errors, ValidationError{
+			Field:   "role_arn",
+			Message: "Role ARN must be in valid ARN format (arn:aws:iam::account-id:role/role-name)",
+		})
+	}
+
+	if !isValidProfileName(req.ProfileName) {
+		errors = append(errors, ValidationError{
+			Field:   "profile_name",
+			Message: "Profile name must be non-empty and max 255 characters",
+		})
+	}
+
+	if !isValidRegion(req.Region) {
+		errors = append(errors, ValidationError{
+			Field:   "region",
+			Message: "Region must be non-empty",
+		})
+	}
+
+	return errors
+}
+
+func validateSwitchSessionRequest(req struct {
+	ProfileName string `json:"profile_name"`
+}) []ValidationError {
+	var errors []ValidationError
+
+	if !isValidProfileName(req.ProfileName) {
+		errors = append(errors, ValidationError{
+			Field:   "profile_name",
+			Message: "Profile name must be non-empty and max 255 characters",
+		})
+	}
+
+	return errors
+}
+
+func validateLoginRoleRequest(req struct {
+	ProfileName string `json:"profile_name"`
+}) []ValidationError {
+	var errors []ValidationError
+
+	if !isValidProfileName(req.ProfileName) {
+		errors = append(errors, ValidationError{
+			Field:   "profile_name",
+			Message: "Profile name must be non-empty and max 255 characters",
+		})
+	}
+
+	return errors
+}
+
+func validateImportConfigRequest(req struct {
+	Profiles []map[string]string `json:"profiles"`
+}) []ValidationError {
+	var errors []ValidationError
+
+	if len(req.Profiles) == 0 {
+		errors = append(errors, ValidationError{
+			Field:   "profiles",
+			Message: "Profiles list must not be empty",
+		})
+		return errors
+	}
+
+	// Validate each profile
+	for i, profile := range req.Profiles {
+		profileName := profile["name"]
+		if profileName == "" {
+			errors = append(errors, ValidationError{
+				Field:   fmt.Sprintf("profiles[%d].name", i),
+				Message: "Profile name must be non-empty",
+			})
+		} else if !isValidProfileName(profileName) {
+			errors = append(errors, ValidationError{
+				Field:   fmt.Sprintf("profiles[%d].name", i),
+				Message: "Profile name must be max 255 characters",
+			})
+		}
+	}
+
+	return errors
+}
+
+func (s *Server) writeValidationError(w http.ResponseWriter, validationErrors []ValidationError) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	json.NewEncoder(w).Encode(ValidationErrorResponse{
+		Error:  "Validation failed",
+		Fields: validationErrors,
+	})
+}
+
 func NewServer(port int, dbRepo *db.ConfigRepository, roleSwitcher *aws.RoleSwitcher) *Server {
 	ssoManager, _ := aws.NewSSOManager()
 	kubeManager := aws.NewKubeManager()
@@ -87,12 +309,13 @@ func (s *Server) Start() error {
 	}
 	
 	// Use disk filesystem
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+	fileServer := http.FileServer(http.Dir(webDir))
+	mux.HandleFunc("GET /{path...}", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
 			http.ServeFile(w, r, filepath.Join(webDir, "index.html"))
 			return
 		}
-		http.FileServer(http.Dir(webDir)).ServeHTTP(w, r)
+		fileServer.ServeHTTP(w, r)
 	})
 
 	addr := fmt.Sprintf("localhost:%d", s.port)
@@ -171,6 +394,12 @@ func (s *Server) handleAddAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate request
+	if validationErrors := validateAddAccountRequest(req); len(validationErrors) > 0 {
+		s.writeValidationError(w, validationErrors)
+		return
+	}
+
 	if err := s.dbRepo.AddAWSAccount(req.AccountID, req.AccountName, req.SSOStartURL, req.SSORegion, req.Description); err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -246,6 +475,12 @@ func (s *Server) handleAddRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate request
+	if validationErrors := validateAddRoleRequest(req); len(validationErrors) > 0 {
+		s.writeValidationError(w, validationErrors)
+		return
+	}
+
 	if err := s.dbRepo.AddAWSRole(req.AccountID, req.RoleName, req.RoleARN, req.ProfileName, req.Region, req.Description); err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -310,6 +545,12 @@ func (s *Server) handleSwitchSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate request
+	if validationErrors := validateSwitchSessionRequest(req); len(validationErrors) > 0 {
+		s.writeValidationError(w, validationErrors)
+		return
+	}
+
 	if err := s.roleSwitcher.SwitchRole(req.ProfileName); err != nil {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -337,6 +578,12 @@ func (s *Server) handleLoginRole(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate request
+	if validationErrors := validateLoginRoleRequest(req); len(validationErrors) > 0 {
+		s.writeValidationError(w, validationErrors)
 		return
 	}
 
@@ -436,6 +683,12 @@ func (s *Server) executeImportConfig(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate request
+	if validationErrors := validateImportConfigRequest(req); len(validationErrors) > 0 {
+		s.writeValidationError(w, validationErrors)
 		return
 	}
 

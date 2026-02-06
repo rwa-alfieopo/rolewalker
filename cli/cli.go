@@ -165,6 +165,8 @@ func (c *CLI) Run(args []string) error {
 		return c.web(cmdArgs)
 	case "help", "--help", "-h":
 		return c.showHelp()
+	case "version", "--version", "-v":
+		return c.showVersion()
 	case "example", "examples":
 		return c.example()
 	default:

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,11 +11,13 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"rolewalkers/aws"
@@ -313,7 +316,6 @@ func (s *Server) Start() error {
 
 	mux.HandleFunc("GET /{path...}", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			// Serve index.html directly for root path to avoid redirect loop
 			f, err := webFS.Open("/index.html")
 			if err != nil {
 				http.Error(w, "index.html not found", http.StatusNotFound)
@@ -328,12 +330,31 @@ func (s *Server) Start() error {
 	})
 
 	addr := fmt.Sprintf("localhost:%d", s.port)
-	s.logger.Info("Starting web server", "address", addr)
+	server := &http.Server{
+		Addr:    addr,
+		Handler: s.securityHeaders(mux),
+	}
 
-	// Open browser
+	// Graceful shutdown on Ctrl+C / SIGTERM — releases DB lock cleanly
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-stop
+		s.logger.Info("Shutting down web server...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		server.Shutdown(ctx)
+	}()
+
+	s.logger.Info("Starting web server", "address", addr)
 	s.openBrowser(fmt.Sprintf("http://%s", addr))
 
-	return http.ListenAndServe(addr, s.securityHeaders(mux))
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return err
+	}
+	s.logger.Info("Web server stopped")
+	return nil
 }
 
 // securityHeaders adds basic security headers to all responses

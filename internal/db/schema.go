@@ -33,9 +33,20 @@ func NewDB() (*DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Set connection pool limits
-	sqlDB.SetMaxOpenConns(25)
-	sqlDB.SetMaxIdleConns(5)
+	// Enable WAL mode for concurrent access (web server + CLI)
+	if _, err := sqlDB.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+	}
+	// Set a busy timeout so concurrent access waits instead of failing immediately
+	if _, err := sqlDB.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("failed to set busy timeout: %w", err)
+	}
+
+	// Set connection pool limits (keep low for local SQLite)
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 	sqlDB.SetConnMaxLifetime(5 * time.Minute)
 
 	db := &DB{sqlDB}

@@ -21,19 +21,7 @@ jobs:
           - os: macos-14
             goos: darwin
             goarch: arm64
-            artifact_name: rwcli-darwin-arm64-m1
-          - os: macos-14
-            goos: darwin
-            goarch: arm64
-            artifact_name: rwcli-darwin-arm64-m2
-          - os: macos-14
-            goos: darwin
-            goarch: arm64
-            artifact_name: rwcli-darwin-arm64-m3
-          - os: macos-14
-            goos: darwin
-            goarch: arm64
-            artifact_name: rwcli-darwin-arm64-m4
+            artifact_name: rwcli-darwin-arm64
           # Linux builds
           - os: ubuntu-latest
             goos: linux

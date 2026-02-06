@@ -1,0 +1,168 @@
+package aws
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/signal"
+	"sort"
+	"strings"
+	"syscall"
+)
+
+// GRPCPorts defines local ports for each gRPC microservice
+var GRPCPorts = map[string]int{
+	"candidate":    5001,
+	"job":          5002,
+	"client":       5003,
+	"organisation": 5004,
+	"user":         5006,
+	"email":        5007,
+	"billing":      5074,
+	"core":         5020,
+}
+
+// GRPCManager handles gRPC port-forwarding operations
+type GRPCManager struct {
+	kubeManager *KubeManager
+}
+
+// NewGRPCManager creates a new GRPCManager instance
+func NewGRPCManager() *GRPCManager {
+	return &GRPCManager{
+		kubeManager: NewKubeManager(),
+	}
+}
+
+// GetServicePort returns the local port for a gRPC service
+func (gm *GRPCManager) GetServicePort(service string) (int, error) {
+	service = strings.ToLower(service)
+	port, ok := GRPCPorts[service]
+	if !ok {
+		return 0, fmt.Errorf("unknown gRPC service: %s\nAvailable: %s", service, gm.GetServices())
+	}
+	return port, nil
+}
+
+// GetServices returns a comma-separated list of available gRPC services
+func (gm *GRPCManager) GetServices() string {
+	services := make([]string, 0, len(GRPCPorts))
+	for s := range GRPCPorts {
+		services = append(services, s)
+	}
+	sort.Strings(services)
+	return strings.Join(services, ", ")
+}
+
+// GetServiceName returns the Kubernetes service name for a gRPC microservice
+func (gm *GRPCManager) GetServiceName(service string) string {
+	return fmt.Sprintf("%s-microservice-grpc", strings.ToLower(service))
+}
+
+// ListServices returns a formatted list of all gRPC services and their ports
+func (gm *GRPCManager) ListServices() string {
+	var sb strings.Builder
+	sb.WriteString("gRPC Services:\n")
+	sb.WriteString(strings.Repeat("-", 50) + "\n")
+	sb.WriteString(fmt.Sprintf("%-15s %-10s %s\n", "SERVICE", "PORT", "K8S SERVICE"))
+	sb.WriteString(strings.Repeat("-", 50) + "\n")
+
+	// Sort services for consistent output
+	services := make([]string, 0, len(GRPCPorts))
+	for s := range GRPCPorts {
+		services = append(services, s)
+	}
+	sort.Strings(services)
+
+	for _, service := range services {
+		port := GRPCPorts[service]
+		k8sService := gm.GetServiceName(service)
+		sb.WriteString(fmt.Sprintf("%-15s %-10d %s\n", service, port, k8sService))
+	}
+
+	sb.WriteString("\nUsage: rwcli grpc <service> <env>\n")
+	sb.WriteString("Example: rwcli grpc candidate dev\n")
+
+	return sb.String()
+}
+
+// Forward starts port-forwarding to a gRPC service
+func (gm *GRPCManager) Forward(service, env string) error {
+	service = strings.ToLower(service)
+	env = strings.ToLower(env)
+
+	// Validate service
+	localPort, err := gm.GetServicePort(service)
+	if err != nil {
+		return err
+	}
+
+	// Switch kubectl context to the environment
+	fmt.Printf("Switching kubectl context to %s...\n", env)
+	if err := gm.kubeManager.SwitchContextForEnv(env); err != nil {
+		return fmt.Errorf("failed to switch kubectl context: %w", err)
+	}
+
+	k8sService := gm.GetServiceName(service)
+	remotePort := localPort // gRPC services use the same port locally and remotely
+
+	fmt.Printf("\nStarting gRPC port-forward:\n")
+	fmt.Printf("  Service:   %s\n", k8sService)
+	fmt.Printf("  Namespace: zenith\n")
+	fmt.Printf("  Local:     localhost:%d\n", localPort)
+	fmt.Printf("  Remote:    %d\n", remotePort)
+	fmt.Println("\nPress Ctrl+C to stop...")
+
+	return gm.startPortForward(k8sService, localPort, remotePort)
+}
+
+// startPortForward runs kubectl port-forward with interrupt handling
+func (gm *GRPCManager) startPortForward(serviceName string, localPort, remotePort int) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Setup signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		fmt.Println("\n\nStopping port-forward...")
+		cancel()
+	}()
+
+	cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
+		fmt.Sprintf("svc/%s", serviceName),
+		fmt.Sprintf("%d:%d", localPort, remotePort),
+		"-n", "zenith",
+	)
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+
+	if ctx.Err() == context.Canceled {
+		fmt.Println("✓ Port-forward stopped")
+		return nil
+	}
+
+	return err
+}
+
+// CheckServiceExists verifies if a gRPC service exists in the cluster
+func (gm *GRPCManager) CheckServiceExists(service, env string) error {
+	k8sService := gm.GetServiceName(service)
+
+	cmd := exec.Command("kubectl", "get", "svc", k8sService, "-n", "zenith", "-o", "name")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("service %s not found in namespace zenith: %s", k8sService, stderr.String())
+	}
+
+	return nil
+}

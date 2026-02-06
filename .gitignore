@@ -1,0 +1,36 @@
+# Task runner
+.task
+
+# Build artifacts
+bin
+*.exe
+*.dll
+*.so
+*.dylib
+me
+
+# Frontend
+frontend/dist
+frontend/node_modules
+frontend/bindings
+
+# Wails build outputs
+build/bin/
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+
+# Go
+*.test
+*.out
+coverage.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

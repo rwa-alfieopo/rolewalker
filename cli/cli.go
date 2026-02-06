@@ -314,17 +314,22 @@ func (c *CLI) switchProfile(profileName string, skipKube bool) error {
 		return err
 	}
 
-	fmt.Printf("✓ Switched to profile: %s\n", profileName)
-
 	// Always switch kubectl context unless explicitly skipped
 	if !skipKube {
 		if err := c.kubeManager.SwitchContextForEnv(profileName); err != nil {
 			fmt.Printf("⚠ Failed to switch kubectl context: %v\n", err)
-		} else {
-			ctx, _ := c.kubeManager.GetCurrentContext()
-			fmt.Printf("✓ Switched kubectl context: %s\n", ctx)
 		}
 	}
+
+	// Get current namespace
+	namespace := c.kubeManager.GetCurrentNamespace()
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// Display the full context
+	fmt.Println()
+	c.showKubeContext(namespace)
 
 	// Check if AWS_PROFILE env var is set - it overrides the config file
 	if envProfile := os.Getenv("AWS_PROFILE"); envProfile != "" && envProfile != profileName {

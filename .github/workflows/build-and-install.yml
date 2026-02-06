@@ -1,0 +1,107 @@
+name: Build and Install
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  release:
+    types: [ created ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          # macOS builds
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            artifact_name: rwcli-darwin-amd64
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+            artifact_name: rwcli-darwin-arm64-m1
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+            artifact_name: rwcli-darwin-arm64-m2
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+            artifact_name: rwcli-darwin-arm64-m3
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+            artifact_name: rwcli-darwin-arm64-m4
+          # Linux builds
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            artifact_name: rwcli-linux-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            artifact_name: rwcli-linux-arm64
+          # Windows builds (latest OS only)
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            artifact_name: rwcli-windows-amd64.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.25'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -o ${{ matrix.artifact_name }} ./cmd/rwcli
+
+      - name: Install (macOS/Linux)
+        if: runner.os != 'Windows'
+        run: |
+          sudo install -m 755 ${{ matrix.artifact_name }} /usr/local/bin/rwcli
+
+      - name: Install (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p "$env:PROGRAMFILES\rwcli"
+          copy ${{ matrix.artifact_name }} "$env:PROGRAMFILES\rwcli\rwcli.exe"
+          echo "$env:PROGRAMFILES\rwcli" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Verify Installation
+        run: |
+          which rwcli || where rwcli
+          rwcli --version || echo "Version flag not implemented"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}
+          retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            rwcli-*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,8 +1,10 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 // Environment represents an environment configuration
@@ -71,8 +73,11 @@ func NewConfigRepository(db *DB) *ConfigRepository {
 
 // GetEnvironment retrieves an environment by name
 func (r *ConfigRepository) GetEnvironment(name string) (*Environment, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	env := &Environment{}
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT id, name, display_name, region, aws_profile, cluster_name, namespace, active
 		FROM environments
 		WHERE name = ? AND active = 1
@@ -90,7 +95,10 @@ func (r *ConfigRepository) GetEnvironment(name string) (*Environment, error) {
 
 // GetAllEnvironments retrieves all active environments
 func (r *ConfigRepository) GetAllEnvironments() ([]Environment, error) {
-	rows, err := r.db.Query(`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, display_name, region, aws_profile, cluster_name, namespace, active
 		FROM environments
 		WHERE active = 1
@@ -115,8 +123,11 @@ func (r *ConfigRepository) GetAllEnvironments() ([]Environment, error) {
 
 // GetService retrieves a service by name
 func (r *ConfigRepository) GetService(name string) (*Service, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	svc := &Service{}
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT id, name, display_name, service_type, default_remote_port, description, active
 		FROM services
 		WHERE name = ? AND active = 1
@@ -134,7 +145,10 @@ func (r *ConfigRepository) GetService(name string) (*Service, error) {
 
 // GetAllServices retrieves all active services
 func (r *ConfigRepository) GetAllServices() ([]Service, error) {
-	rows, err := r.db.Query(`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, display_name, service_type, default_remote_port, description, active
 		FROM services
 		WHERE active = 1
@@ -159,8 +173,11 @@ func (r *ConfigRepository) GetAllServices() ([]Service, error) {
 
 // GetPortMapping retrieves a port mapping for a service and environment
 func (r *ConfigRepository) GetPortMapping(serviceName, envName string) (*PortMapping, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	pm := &PortMapping{}
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT pm.id, pm.service_id, pm.environment_id, pm.local_port, pm.remote_port, pm.description, pm.active
 		FROM port_mappings pm
 		JOIN services s ON pm.service_id = s.id
@@ -180,7 +197,10 @@ func (r *ConfigRepository) GetPortMapping(serviceName, envName string) (*PortMap
 
 // GetPortMappingsByService retrieves all port mappings for a service
 func (r *ConfigRepository) GetPortMappingsByService(serviceName string) ([]PortMapping, error) {
-	rows, err := r.db.Query(`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT pm.id, pm.service_id, pm.environment_id, pm.local_port, pm.remote_port, pm.description, pm.active
 		FROM port_mappings pm
 		JOIN services s ON pm.service_id = s.id
@@ -206,8 +226,11 @@ func (r *ConfigRepository) GetPortMappingsByService(serviceName string) ([]PortM
 
 // GetScalingPreset retrieves a scaling preset by name
 func (r *ConfigRepository) GetScalingPreset(name string) (*ScalingPreset, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	preset := &ScalingPreset{}
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT id, name, display_name, min_replicas, max_replicas, description, active
 		FROM scaling_presets
 		WHERE name = ? AND active = 1
@@ -225,7 +248,10 @@ func (r *ConfigRepository) GetScalingPreset(name string) (*ScalingPreset, error)
 
 // GetAllScalingPresets retrieves all active scaling presets
 func (r *ConfigRepository) GetAllScalingPresets() ([]ScalingPreset, error) {
-	rows, err := r.db.Query(`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, name, display_name, min_replicas, max_replicas, description, active
 		FROM scaling_presets
 		WHERE active = 1
@@ -250,8 +276,11 @@ func (r *ConfigRepository) GetAllScalingPresets() ([]ScalingPreset, error) {
 
 // GetAPIEndpoint retrieves an API endpoint by name
 func (r *ConfigRepository) GetAPIEndpoint(name string) (*APIEndpoint, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	endpoint := &APIEndpoint{}
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT id, name, base_url, description, active
 		FROM api_endpoints
 		WHERE name = ? AND active = 1
@@ -269,7 +298,10 @@ func (r *ConfigRepository) GetAPIEndpoint(name string) (*APIEndpoint, error) {
 
 // GetGRPCMicroservices retrieves all gRPC microservices
 func (r *ConfigRepository) GetGRPCMicroservices() (map[string]int, error) {
-	rows, err := r.db.Query(`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT name, default_remote_port
 		FROM services
 		WHERE service_type = 'grpc-microservice' AND active = 1
@@ -331,8 +363,11 @@ type UserSession struct {
 
 // GetAWSAccount retrieves an AWS account by account ID
 func (r *ConfigRepository) GetAWSAccount(accountID string) (*AWSAccount, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	acc := &AWSAccount{}
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT id, account_id, account_name, sso_start_url, sso_region, description, active
 		FROM aws_accounts
 		WHERE account_id = ? AND active = 1
@@ -350,7 +385,10 @@ func (r *ConfigRepository) GetAWSAccount(accountID string) (*AWSAccount, error) 
 
 // GetAllAWSAccounts retrieves all active AWS accounts
 func (r *ConfigRepository) GetAllAWSAccounts() ([]AWSAccount, error) {
-	rows, err := r.db.Query(`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, account_id, account_name, sso_start_url, sso_region, description, active
 		FROM aws_accounts
 		WHERE active = 1
@@ -375,7 +413,10 @@ func (r *ConfigRepository) GetAllAWSAccounts() ([]AWSAccount, error) {
 
 // GetRolesByAccount retrieves all roles for an AWS account
 func (r *ConfigRepository) GetRolesByAccount(accountID string) ([]AWSRole, error) {
-	rows, err := r.db.Query(`
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rows, err := r.db.QueryContext(ctx, `
 		SELECT r.id, r.account_id, r.role_name, r.role_arn, r.profile_name, r.region, r.description, r.active
 		FROM aws_roles r
 		JOIN aws_accounts a ON r.account_id = a.id
@@ -401,8 +442,11 @@ func (r *ConfigRepository) GetRolesByAccount(accountID string) ([]AWSRole, error
 
 // GetRoleByProfileName retrieves a role by its profile name
 func (r *ConfigRepository) GetRoleByProfileName(profileName string) (*AWSRole, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	role := &AWSRole{}
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT id, account_id, role_name, role_arn, profile_name, region, description, active
 		FROM aws_roles
 		WHERE profile_name = ? AND active = 1
@@ -450,11 +494,14 @@ func (r *ConfigRepository) CreateUserSession(roleID int) error {
 
 // GetActiveSession retrieves the currently active session
 func (r *ConfigRepository) GetActiveSession() (*UserSession, *AWSRole, *AWSAccount, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	session := &UserSession{}
 	role := &AWSRole{}
 	account := &AWSAccount{}
 
-	err := r.db.QueryRow(`
+	err := r.db.QueryRowContext(ctx, `
 		SELECT 
 			s.id, s.role_id, s.session_start, s.session_end, s.is_active,
 			r.id, r.account_id, r.role_name, r.role_arn, r.profile_name, r.region, r.description, r.active,

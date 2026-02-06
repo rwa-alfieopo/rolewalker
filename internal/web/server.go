@@ -3,15 +3,17 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
+
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"rolewalkers/aws"
 	"rolewalkers/internal/db"
@@ -23,6 +25,7 @@ type Server struct {
 	roleSwitcher *aws.RoleSwitcher
 	ssoManager   *aws.SSOManager
 	kubeManager  *aws.KubeManager
+	logger       *slog.Logger
 }
 
 type AccountResponse struct {
@@ -282,23 +285,24 @@ func NewServer(port int, dbRepo *db.ConfigRepository, roleSwitcher *aws.RoleSwit
 		roleSwitcher: roleSwitcher,
 		ssoManager:   ssoManager,
 		kubeManager:  kubeManager,
+		logger:       slog.Default(),
 	}
 }
 
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
-	// API endpoints
-	mux.HandleFunc("GET /api/accounts", s.handleGetAccounts)
-	mux.HandleFunc("POST /api/accounts", s.handleAddAccount)
-	mux.HandleFunc("GET /api/accounts/{id}/roles", s.handleGetRoles)
-	mux.HandleFunc("POST /api/roles", s.handleAddRole)
-	mux.HandleFunc("GET /api/session/active", s.handleGetActiveSession)
-	mux.HandleFunc("POST /api/session/switch", s.handleSwitchSession)
-	mux.HandleFunc("GET /api/session/login-status/{profileName}", s.handleGetLoginStatus)
-	mux.HandleFunc("POST /api/session/login", s.handleLoginRole)
-	mux.HandleFunc("GET /api/config/import", s.handleImportConfig)
-	mux.HandleFunc("POST /api/config/import", s.handleImportConfig)
+	// API endpoints (wrapped with recovery + logging middleware)
+	mux.HandleFunc("GET /api/accounts", s.RecoveryMiddleware(s.logRequest(s.handleGetAccounts)))
+	mux.HandleFunc("POST /api/accounts", s.RecoveryMiddleware(s.logRequest(s.handleAddAccount)))
+	mux.HandleFunc("GET /api/accounts/{id}/roles", s.RecoveryMiddleware(s.logRequest(s.handleGetRoles)))
+	mux.HandleFunc("POST /api/roles", s.RecoveryMiddleware(s.logRequest(s.handleAddRole)))
+	mux.HandleFunc("GET /api/session/active", s.RecoveryMiddleware(s.logRequest(s.handleGetActiveSession)))
+	mux.HandleFunc("POST /api/session/switch", s.RecoveryMiddleware(s.logRequest(s.handleSwitchSession)))
+	mux.HandleFunc("GET /api/session/login-status/{profileName}", s.RecoveryMiddleware(s.logRequest(s.handleGetLoginStatus)))
+	mux.HandleFunc("POST /api/session/login", s.RecoveryMiddleware(s.logRequest(s.handleLoginRole)))
+	mux.HandleFunc("GET /api/config/import", s.RecoveryMiddleware(s.logRequest(s.handleImportConfig)))
+	mux.HandleFunc("POST /api/config/import", s.RecoveryMiddleware(s.logRequest(s.handleImportConfig)))
 
 	// Serve static files
 	webDir := s.getWebDir()
@@ -319,7 +323,7 @@ func (s *Server) Start() error {
 	})
 
 	addr := fmt.Sprintf("localhost:%d", s.port)
-	fmt.Printf("Starting web server on http://%s\n", addr)
+	s.logger.Info("Starting web server", "address", addr)
 
 	// Open browser
 	s.openBrowser(fmt.Sprintf("http://%s", addr))
@@ -359,10 +363,61 @@ func (s *Server) openBrowser(url string) {
 	}
 }
 
+func (s *Server) RecoveryMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				stack := make([]byte, 4096)
+				n := runtime.Stack(stack, false)
+				s.logger.Error("Panic recovered",
+					"error", err,
+					"method", r.Method,
+					"path", r.URL.Path,
+					"stack", string(stack[:n]),
+				)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+		next(w, r)
+	}
+}
+
+func (s *Server) logRequest(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		
+		// Create a response writer wrapper to capture status code
+		wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		
+		// Call the handler
+		next(wrapped, r)
+		
+		// Log the request
+		duration := time.Since(start).Milliseconds()
+		s.logger.Info("API request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", wrapped.statusCode,
+			"duration_ms", duration,
+		)
+	}
+}
+
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
 func (s *Server) handleGetAccounts(w http.ResponseWriter, r *http.Request) {
 	accounts, err := s.dbRepo.GetAllAWSAccounts()
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		s.logger.Error("Database error", "operation", "GetAllAWSAccounts", "error", err)
+		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -401,9 +456,12 @@ func (s *Server) handleAddAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.dbRepo.AddAWSAccount(req.AccountID, req.AccountName, req.SSOStartURL, req.SSORegion, req.Description); err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		s.logger.Error("Database error", "operation", "AddAWSAccount", "account_id", req.AccountID, "error", err)
+		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
+
+	s.logger.Info("Sensitive operation: account added", "account_id", req.AccountID, "account_name", req.AccountName)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -421,7 +479,8 @@ func (s *Server) handleGetRoles(w http.ResponseWriter, r *http.Request) {
 	// Get the account to find its AWS account ID
 	accounts, err := s.dbRepo.GetAllAWSAccounts()
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		s.logger.Error("Database error", "operation", "GetAllAWSAccounts", "error", err)
+		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -440,7 +499,8 @@ func (s *Server) handleGetRoles(w http.ResponseWriter, r *http.Request) {
 
 	roles, err := s.dbRepo.GetRolesByAccount(awsAccountID)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		s.logger.Error("Database error", "operation", "GetRolesByAccount", "account_id", awsAccountID, "error", err)
+		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -482,9 +542,12 @@ func (s *Server) handleAddRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.dbRepo.AddAWSRole(req.AccountID, req.RoleName, req.RoleARN, req.ProfileName, req.Region, req.Description); err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		s.logger.Error("Database error", "operation", "AddAWSRole", "account_id", req.AccountID, "role_name", req.RoleName, "error", err)
+		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
+
+	s.logger.Info("Sensitive operation: role added", "account_id", req.AccountID, "role_name", req.RoleName, "profile_name", req.ProfileName)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -494,6 +557,7 @@ func (s *Server) handleAddRole(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetActiveSession(w http.ResponseWriter, r *http.Request) {
 	session, role, account, err := s.dbRepo.GetActiveSession()
 	if err != nil {
+		s.logger.Error("Database error", "operation", "GetActiveSession", "error", err)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(SessionResponse{Active: false})
 		return
@@ -552,9 +616,12 @@ func (s *Server) handleSwitchSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.roleSwitcher.SwitchRole(req.ProfileName); err != nil {
-		s.writeError(w, http.StatusInternalServerError, err.Error())
+		s.logger.Error("Role switch failed", "profile_name", req.ProfileName, "error", err)
+		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
+
+	s.logger.Info("Sensitive operation: session switched", "profile_name", req.ProfileName)
 
 	// Try to switch Kubernetes context if available
 	kubeStatus := "skipped"
@@ -564,6 +631,7 @@ func (s *Server) handleSwitchSession(w http.ResponseWriter, r *http.Request) {
 			kubeStatus = "switched"
 		} else {
 			kubeStatus = "failed"
+			s.logger.Error("Kubernetes context switch failed", "profile_name", req.ProfileName, "env", env, "error", err)
 		}
 	}
 
@@ -588,27 +656,33 @@ func (s *Server) handleLoginRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.ssoManager == nil {
-		s.writeError(w, http.StatusInternalServerError, "SSO manager not initialized")
+		s.logger.Error("SSO manager not initialized", "profile_name", req.ProfileName)
+		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
 	// Validate the profile exists
 	if err := s.ssoManager.ValidateProfile(req.ProfileName); err != nil {
-		s.writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid profile: %v", err))
+		s.logger.Error("Profile validation failed", "profile_name", req.ProfileName, "error", err)
+		s.writeError(w, http.StatusBadRequest, "Invalid profile")
 		return
 	}
 
 	// Initiate SSO login
 	if err := s.ssoManager.Login(req.ProfileName); err != nil {
-		s.writeError(w, http.StatusInternalServerError, fmt.Sprintf("SSO login failed: %v", err))
+		s.logger.Error("SSO login failed", "profile_name", req.ProfileName, "error", err)
+		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
 	// After successful login, switch to the role
 	if err := s.roleSwitcher.SwitchRole(req.ProfileName); err != nil {
-		s.writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to switch role after login: %v", err))
+		s.logger.Error("Role switch after login failed", "profile_name", req.ProfileName, "error", err)
+		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
+
+	s.logger.Info("Sensitive operation: user logged in and switched role", "profile_name", req.ProfileName)
 
 	// Try to switch Kubernetes context if available
 	kubeStatus := "skipped"
@@ -618,6 +692,7 @@ func (s *Server) handleLoginRole(w http.ResponseWriter, r *http.Request) {
 			kubeStatus = "switched"
 		} else {
 			kubeStatus = "failed"
+			s.logger.Error("Kubernetes context switch failed after login", "profile_name", req.ProfileName, "env", env, "error", err)
 		}
 	}
 
@@ -657,14 +732,16 @@ func (s *Server) handleImportConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) previewImportConfig(w http.ResponseWriter, r *http.Request) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to get home directory")
+		s.logger.Error("Failed to get home directory", "error", err)
+		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
 	configPath := filepath.Join(homeDir, ".aws", "config")
 	content, err := os.ReadFile(configPath)
 	if err != nil {
-		s.writeError(w, http.StatusInternalServerError, "Failed to read AWS config")
+		s.logger.Error("Failed to read AWS config", "path", configPath, "error", err)
+		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 
@@ -735,13 +812,15 @@ func (s *Server) executeImportConfig(w http.ResponseWriter, r *http.Request) {
 			}
 			
 			if err := s.dbRepo.AddAWSAccount(accountID, envName, ssoStartURL, ssoRegion, "Imported from AWS config"); err != nil {
-				errors = append(errors, fmt.Sprintf("Profile %s: failed to create account - %v", profileName, err))
+				s.logger.Error("Failed to create account during import", "profile_name", profileName, "account_id", accountID, "error", err)
+				errors = append(errors, fmt.Sprintf("Profile %s: failed to create account", profileName))
 				continue
 			}
 			
 			// Fetch the newly created account
 			account, err = s.dbRepo.GetAWSAccount(accountID)
 			if err != nil || account == nil {
+				s.logger.Error("Created account not retrievable", "profile_name", profileName, "account_id", accountID)
 				errors = append(errors, fmt.Sprintf("Profile %s: account created but could not be retrieved", profileName))
 				continue
 			}
@@ -783,12 +862,15 @@ func (s *Server) executeImportConfig(w http.ResponseWriter, r *http.Request) {
 				skipped++
 				continue
 			}
-			errors = append(errors, fmt.Sprintf("Profile %s: failed to create role - %v", profileName, err))
+			s.logger.Error("Failed to create role during import", "profile_name", profileName, "account_id", account.ID, "role_name", roleName, "error", err)
+			errors = append(errors, fmt.Sprintf("Profile %s: failed to create role", profileName))
 			continue
 		}
 
 		imported++
 	}
+
+	s.logger.Info("Sensitive operation: config imported", "imported", imported, "skipped", skipped, "errors", len(errors))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -851,5 +933,13 @@ func (s *Server) parseAWSConfig(content string) []map[string]string {
 func (s *Server) writeError(w http.ResponseWriter, statusCode int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(ErrorResponse{Error: message})
+
+	resp := ErrorResponse{}
+	if statusCode >= 500 {
+		resp.Error = "Internal server error"
+	} else {
+		resp.Error = message
+	}
+
+	json.NewEncoder(w).Encode(resp)
 }

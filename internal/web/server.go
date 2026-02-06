@@ -3,6 +3,8 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -17,6 +19,7 @@ import (
 
 	"rolewalkers/aws"
 	"rolewalkers/internal/db"
+	webAssets "rolewalkers/web"
 )
 
 type Server struct {
@@ -304,19 +307,21 @@ func (s *Server) Start() error {
 	mux.HandleFunc("GET /api/config/import", s.RecoveryMiddleware(s.logRequest(s.handleImportConfig)))
 	mux.HandleFunc("POST /api/config/import", s.RecoveryMiddleware(s.logRequest(s.handleImportConfig)))
 
-	// Serve static files
-	webDir := s.getWebDir()
-	
-	if webDir == "embedded" {
-		// Embedded filesystem not available, serve from disk
-		webDir = "web"
-	}
-	
-	// Use disk filesystem
-	fileServer := http.FileServer(http.Dir(webDir))
+	// Serve static files using embedded or disk filesystem
+	webFS, _ := s.getWebDir()
+	fileServer := http.FileServer(webFS)
+
 	mux.HandleFunc("GET /{path...}", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			http.ServeFile(w, r, filepath.Join(webDir, "index.html"))
+			// Serve index.html directly for root path to avoid redirect loop
+			f, err := webFS.Open("/index.html")
+			if err != nil {
+				http.Error(w, "index.html not found", http.StatusNotFound)
+				return
+			}
+			defer f.Close()
+			stat, _ := f.Stat()
+			http.ServeContent(w, r, "index.html", stat.ModTime(), f.(io.ReadSeeker))
 			return
 		}
 		fileServer.ServeHTTP(w, r)
@@ -342,21 +347,27 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) getWebDir() string {
+func (s *Server) getWebDir() (http.FileSystem, bool) {
 	// Try current directory first
 	if _, err := os.Stat("web"); err == nil {
-		return "web"
+		return http.Dir("web"), false
 	}
 	// Try relative to executable
 	ex, err := os.Executable()
 	if err == nil {
 		dir := filepath.Dir(ex)
-		if _, err := os.Stat(filepath.Join(dir, "web")); err == nil {
-			return filepath.Join(dir, "web")
+		webPath := filepath.Join(dir, "web")
+		if _, err := os.Stat(webPath); err == nil {
+			return http.Dir(webPath), false
 		}
 	}
 	// Use embedded filesystem as fallback
-	return "embedded"
+	embedded, err := fs.Sub(webAssets.Assets, ".")
+	if err != nil {
+		s.logger.Error("Failed to create embedded sub-filesystem", "error", err)
+		return http.Dir("web"), false
+	}
+	return http.FS(embedded), true
 }
 
 func (s *Server) openBrowser(url string) {

@@ -296,3 +296,211 @@ func (r *ConfigRepository) GetGRPCMicroservices() (map[string]int, error) {
 
 	return microservices, rows.Err()
 }
+
+// AWSAccount represents an AWS account
+type AWSAccount struct {
+	ID           int
+	AccountID    string
+	AccountName  string
+	SSOStartURL  sql.NullString
+	SSORegion    sql.NullString
+	Description  sql.NullString
+	Active       bool
+}
+
+// AWSRole represents an AWS role within an account
+type AWSRole struct {
+	ID          int
+	AccountID   int
+	RoleName    string
+	RoleARN     sql.NullString
+	ProfileName string
+	Region      string
+	Description sql.NullString
+	Active      bool
+}
+
+// UserSession represents an active user session
+type UserSession struct {
+	ID           int
+	RoleID       int
+	SessionStart string
+	SessionEnd   sql.NullString
+	IsActive     bool
+}
+
+// GetAWSAccount retrieves an AWS account by account ID
+func (r *ConfigRepository) GetAWSAccount(accountID string) (*AWSAccount, error) {
+	acc := &AWSAccount{}
+	err := r.db.QueryRow(`
+		SELECT id, account_id, account_name, sso_start_url, sso_region, description, active
+		FROM aws_accounts
+		WHERE account_id = ? AND active = 1
+	`, accountID).Scan(&acc.ID, &acc.AccountID, &acc.AccountName, &acc.SSOStartURL, &acc.SSORegion, &acc.Description, &acc.Active)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("AWS account not found: %s", accountID)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return acc, nil
+}
+
+// GetAllAWSAccounts retrieves all active AWS accounts
+func (r *ConfigRepository) GetAllAWSAccounts() ([]AWSAccount, error) {
+	rows, err := r.db.Query(`
+		SELECT id, account_id, account_name, sso_start_url, sso_region, description, active
+		FROM aws_accounts
+		WHERE active = 1
+		ORDER BY account_name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var accounts []AWSAccount
+	for rows.Next() {
+		var acc AWSAccount
+		if err := rows.Scan(&acc.ID, &acc.AccountID, &acc.AccountName, &acc.SSOStartURL, &acc.SSORegion, &acc.Description, &acc.Active); err != nil {
+			return nil, err
+		}
+		accounts = append(accounts, acc)
+	}
+
+	return accounts, rows.Err()
+}
+
+// GetRolesByAccount retrieves all roles for an AWS account
+func (r *ConfigRepository) GetRolesByAccount(accountID string) ([]AWSRole, error) {
+	rows, err := r.db.Query(`
+		SELECT r.id, r.account_id, r.role_name, r.role_arn, r.profile_name, r.region, r.description, r.active
+		FROM aws_roles r
+		JOIN aws_accounts a ON r.account_id = a.id
+		WHERE a.account_id = ? AND r.active = 1
+		ORDER BY r.role_name
+	`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var roles []AWSRole
+	for rows.Next() {
+		var role AWSRole
+		if err := rows.Scan(&role.ID, &role.AccountID, &role.RoleName, &role.RoleARN, &role.ProfileName, &role.Region, &role.Description, &role.Active); err != nil {
+			return nil, err
+		}
+		roles = append(roles, role)
+	}
+
+	return roles, rows.Err()
+}
+
+// GetRoleByProfileName retrieves a role by its profile name
+func (r *ConfigRepository) GetRoleByProfileName(profileName string) (*AWSRole, error) {
+	role := &AWSRole{}
+	err := r.db.QueryRow(`
+		SELECT id, account_id, role_name, role_arn, profile_name, region, description, active
+		FROM aws_roles
+		WHERE profile_name = ? AND active = 1
+	`, profileName).Scan(&role.ID, &role.AccountID, &role.RoleName, &role.RoleARN, &role.ProfileName, &role.Region, &role.Description, &role.Active)
+
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("role not found: %s", profileName)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return role, nil
+}
+
+// CreateUserSession creates a new user session and deactivates previous ones
+func (r *ConfigRepository) CreateUserSession(roleID int) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Deactivate all previous sessions
+	_, err = tx.Exec(`
+		UPDATE user_sessions 
+		SET is_active = 0, session_end = CURRENT_TIMESTAMP
+		WHERE is_active = 1
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Create new session
+	_, err = tx.Exec(`
+		INSERT INTO user_sessions (role_id, is_active)
+		VALUES (?, 1)
+	`, roleID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// GetActiveSession retrieves the currently active session
+func (r *ConfigRepository) GetActiveSession() (*UserSession, *AWSRole, *AWSAccount, error) {
+	session := &UserSession{}
+	role := &AWSRole{}
+	account := &AWSAccount{}
+
+	err := r.db.QueryRow(`
+		SELECT 
+			s.id, s.role_id, s.session_start, s.session_end, s.is_active,
+			r.id, r.account_id, r.role_name, r.role_arn, r.profile_name, r.region, r.description, r.active,
+			a.id, a.account_id, a.account_name, a.sso_start_url, a.sso_region, a.description, a.active
+		FROM user_sessions s
+		JOIN aws_roles r ON s.role_id = r.id
+		JOIN aws_accounts a ON r.account_id = a.id
+		WHERE s.is_active = 1
+		ORDER BY s.session_start DESC
+		LIMIT 1
+	`).Scan(
+		&session.ID, &session.RoleID, &session.SessionStart, &session.SessionEnd, &session.IsActive,
+		&role.ID, &role.AccountID, &role.RoleName, &role.RoleARN, &role.ProfileName, &role.Region, &role.Description, &role.Active,
+		&account.ID, &account.AccountID, &account.AccountName, &account.SSOStartURL, &account.SSORegion, &account.Description, &account.Active,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil, nil, fmt.Errorf("no active session found")
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return session, role, account, nil
+}
+
+// AddAWSAccount adds a new AWS account
+func (r *ConfigRepository) AddAWSAccount(accountID, accountName, ssoStartURL, ssoRegion, description string) error {
+	_, err := r.db.Exec(`
+		INSERT INTO aws_accounts (account_id, account_name, sso_start_url, sso_region, description)
+		VALUES (?, ?, ?, ?, ?)
+	`, accountID, accountName, 
+		sql.NullString{String: ssoStartURL, Valid: ssoStartURL != ""},
+		sql.NullString{String: ssoRegion, Valid: ssoRegion != ""},
+		sql.NullString{String: description, Valid: description != ""})
+	return err
+}
+
+// AddAWSRole adds a new AWS role
+func (r *ConfigRepository) AddAWSRole(accountID int, roleName, roleARN, profileName, region, description string) error {
+	_, err := r.db.Exec(`
+		INSERT INTO aws_roles (account_id, role_name, role_arn, profile_name, region, description)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, accountID, roleName,
+		sql.NullString{String: roleARN, Valid: roleARN != ""},
+		profileName, region,
+		sql.NullString{String: description, Valid: description != ""})
+	return err
+}

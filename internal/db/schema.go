@@ -63,6 +63,9 @@ func (db *DB) migrate() error {
 		{5, "create_api_endpoints", migrateV5CreateAPIEndpoints},
 		{6, "create_cluster_mappings", migrateV6CreateClusterMappings},
 		{7, "seed_default_data", migrateV7SeedDefaultData},
+		{8, "create_aws_accounts", migrateV8CreateAWSAccounts},
+		{9, "create_aws_roles", migrateV9CreateAWSRoles},
+		{10, "create_user_sessions", migrateV10CreateUserSessions},
 	}
 
 	for _, m := range migrations {

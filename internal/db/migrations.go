@@ -263,3 +263,66 @@ func migrateV7SeedDefaultData(db *DB) error {
 
 	return nil
 }
+
+// migrateV8CreateAWSAccounts creates the aws_accounts table
+func migrateV8CreateAWSAccounts(db *DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE aws_accounts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			account_id TEXT NOT NULL UNIQUE,
+			account_name TEXT NOT NULL,
+			sso_start_url TEXT,
+			sso_region TEXT,
+			description TEXT,
+			active BOOLEAN NOT NULL DEFAULT 1,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	return err
+}
+
+// migrateV9CreateAWSRoles creates the aws_roles table
+func migrateV9CreateAWSRoles(db *DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE aws_roles (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			account_id INTEGER NOT NULL,
+			role_name TEXT NOT NULL,
+			role_arn TEXT,
+			profile_name TEXT NOT NULL UNIQUE,
+			region TEXT NOT NULL DEFAULT 'eu-west-2',
+			description TEXT,
+			active BOOLEAN NOT NULL DEFAULT 1,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (account_id) REFERENCES aws_accounts(id) ON DELETE CASCADE,
+			UNIQUE(account_id, role_name)
+		)
+	`)
+	return err
+}
+
+// migrateV10CreateUserSessions creates the user_sessions table
+func migrateV10CreateUserSessions(db *DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE user_sessions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			role_id INTEGER NOT NULL,
+			session_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			session_end TIMESTAMP,
+			is_active BOOLEAN NOT NULL DEFAULT 1,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (role_id) REFERENCES aws_roles(id) ON DELETE CASCADE
+		)
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Create index for active session lookups
+	_, err = db.Exec(`
+		CREATE INDEX idx_user_sessions_active ON user_sessions(is_active, session_start DESC)
+	`)
+	return err
+}

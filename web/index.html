@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AWS Account Manager</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div style="display: flex; align-items: center; justify-content: center; gap: 12px;">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                </svg>
+                <h1>AWS Account Manager</h1>
+            </div>
+            <p>Manage your AWS accounts, roles, and sessions</p>
+        </header>
+
+        <div class="main-grid">
+            <div class="card active-session">
+                <h2>Current Active Session</h2>
+                <div class="session-info" id="sessionInfo">
+                    <p>No active session</p>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Accounts & Roles</h2>
+                <div class="accounts-list" id="accountsList">
+                    <div class="empty-state">
+                        <p>No accounts configured</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Quick Add</h2>
+                <div id="quickAddMessage" class="message"></div>
+                <div style="margin-bottom: 15px;">
+                    <button type="button" class="btn-primary" onclick="showAddForm('account')" style="margin-bottom: 10px;">Add Account</button>
+                    <button type="button" class="btn-secondary" onclick="showAddForm('role')" style="margin-bottom: 10px;">Add Role</button>
+                    <button type="button" class="btn-import" onclick="importConfig()">Import from AWS Config</button>
+                </div>
+                <div id="addFormContainer" style="display: none; margin-top: 20px; padding-top: 20px; border-top: 1px solid #000;">
+                    <div id="accountForm" style="display: none;">
+                        <h3 style="margin-bottom: 15px; font-size: 1.1em;">Add New Account</h3>
+                        <form id="addAccountForm" onsubmit="handleAddAccount(event)">
+                            <div class="form-group">
+                                <label for="accountId">Account ID *</label>
+                                <input type="text" id="accountId" placeholder="123456789012" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="accountName">Account Name *</label>
+                                <input type="text" id="accountName" placeholder="e.g., Production" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="ssoStartUrl">SSO Start URL</label>
+                                <input type="text" id="ssoStartUrl" placeholder="https://d-9c67711d98.awsapps.com/start" value="https://d-9c67711d98.awsapps.com/start">
+                            </div>
+                            <div class="form-group">
+                                <label for="ssoRegion">SSO Region</label>
+                                <input type="text" id="ssoRegion" placeholder="eu-west-2" value="eu-west-2">
+                            </div>
+                            <div class="form-group">
+                                <label for="accountDesc">Description</label>
+                                <input type="text" id="accountDesc" placeholder="Optional notes">
+                            </div>
+                            <div class="button-group">
+                                <button type="submit" class="btn-primary">Save Account</button>
+                                <button type="button" class="btn-secondary" onclick="hideAddForm()">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div id="roleForm" style="display: none;">
+                        <h3 style="margin-bottom: 15px; font-size: 1.1em;">Add New Role</h3>
+                        <form id="addRoleForm" onsubmit="handleAddRole(event)">
+                            <div class="form-group">
+                                <label for="roleAccountId">Account *</label>
+                                <select id="roleAccountId" required>
+                                    <option value="">Select an account</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="roleName">Role Name *</label>
+                                <input type="text" id="roleName" placeholder="e.g., Admin" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="profileName">Profile Name *</label>
+                                <input type="text" id="profileName" placeholder="e.g., prod-admin" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="roleRegion">Region *</label>
+                                <input type="text" id="roleRegion" placeholder="eu-west-2" value="eu-west-2" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="roleArn">Role ARN</label>
+                                <input type="text" id="roleArn" placeholder="Optional">
+                            </div>
+                            <div class="form-group">
+                                <label for="roleDesc">Description</label>
+                                <input type="text" id="roleDesc" placeholder="Optional notes">
+                            </div>
+                            <div class="button-group">
+                                <button type="submit" class="btn-primary">Save Role</button>
+                                <button type="button" class="btn-secondary" onclick="hideAddForm()">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Import Preview</h2>
+                <div id="importMessage" class="message"></div>
+                <div id="importPreview" style="display: none;">
+                    <div style="background: #f9f9f9; padding: 12px; border-radius: 0; max-height: 200px; overflow-y: auto; border: 1px solid #000;">
+                        <pre id="importPreviewContent" style="font-size: 0.9em; white-space: pre-wrap; word-wrap: break-word; margin: 0;"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="importModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Import AWS Profiles</h2>
+                <button class="modal-close" onclick="closeImportModal()">&times;</button>
+            </div>
+            <div class="modal-preview">
+                <pre id="modalPreviewContent" style="font-size: 0.9em; white-space: pre-wrap; word-wrap: break-word; margin: 0;"></pre>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-primary" onclick="saveImportedProfiles(window.importProfiles)">Save All Profiles</button>
+                <button class="btn-secondary" onclick="closeImportModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirmModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Confirm Role Switch</h2>
+                <button class="modal-close" onclick="closeConfirmModal()">&times;</button>
+            </div>
+            <div id="confirmMessage" style="margin-bottom: 20px; font-size: 1.1em;"></div>
+            <div id="warningBox" style="display: none; background: #fff0f0; border: 2px solid #ff0000; padding: 15px; margin-bottom: 20px; border-radius: 0;">
+                <div style="color: #ff0000; font-weight: 600; margin-bottom: 8px;">WARNING: Production Environment</div>
+                <div style="color: #ff0000;">You are about to switch to a production role. Please ensure this is intentional.</div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-primary" onclick="confirmSwitch()">Switch Role</button>
+                <button class="btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

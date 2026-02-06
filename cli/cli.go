@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"rolewalkers/aws"
+	"rolewalkers/internal/db"
 	"rolewalkers/internal/utils"
+	"rolewalkers/internal/web"
 	"runtime"
 	"strconv"
 	"strings"
@@ -28,6 +30,7 @@ type CLI struct {
 	maintenanceManager  *aws.MaintenanceManager
 	scalingManager      *aws.ScalingManager
 	replicationManager  *aws.ReplicationManager
+	dbRepo              *db.ConfigRepository
 }
 
 // NewCLI creates a new CLI instance
@@ -63,6 +66,13 @@ func NewCLI() (*CLI, error) {
 	scaleMgr := aws.NewScalingManager()
 	replMgr := aws.NewReplicationManager()
 
+	// Initialize database repository
+	var dbRepo *db.ConfigRepository
+	database, err := db.NewDB()
+	if err == nil {
+		dbRepo = db.NewConfigRepository(database)
+	}
+
 	return &CLI{
 		configManager:       cm,
 		ssoManager:         sm,
@@ -77,6 +87,7 @@ func NewCLI() (*CLI, error) {
 		maintenanceManager: maintMgr,
 		scalingManager:     scaleMgr,
 		replicationManager: replMgr,
+		dbRepo:             dbRepo,
 	}, nil
 }
 
@@ -150,6 +161,8 @@ func (c *CLI) Run(args []string) error {
 		return c.keygen(cmdArgs)
 	case "ssm":
 		return c.ssm(cmdArgs)
+	case "web":
+		return c.web(cmdArgs)
 	case "help", "--help", "-h":
 		return c.showHelp()
 	case "example", "examples":
@@ -276,6 +289,8 @@ Commands:
   ssm get <path>        Get SSM parameter value
     --decrypt           Decrypt SecureString (default: enabled)
   ssm list <prefix>     List parameters under a path prefix
+  web                   Start web UI for account/role management
+    --port <port>       Local port (default: 8080)
   keygen [count]        Generate cryptographically secure API keys
   help                  Show this help message
   example               Show usage examples
@@ -1811,6 +1826,31 @@ func (c *CLI) replicationDelete(args []string) error {
 }
 
 // RunCLI is the entry point for CLI mode
+func (c *CLI) web(args []string) error {
+	port := 8080
+	
+	// Parse --port flag
+	for i, arg := range args {
+		if arg == "--port" && i+1 < len(args) {
+			p, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				return fmt.Errorf("invalid port: %s", args[i+1])
+			}
+			port = p
+		}
+	}
+
+	// Create role switcher
+	roleSwitcher, err := aws.NewRoleSwitcher(c.dbRepo)
+	if err != nil {
+		return fmt.Errorf("failed to create role switcher: %w", err)
+	}
+
+	// Create and start web server
+	server := web.NewServer(port, c.dbRepo, roleSwitcher)
+	return server.Start()
+}
+
 func RunCLI() {
 	cli, err := NewCLI()
 	if err != nil {

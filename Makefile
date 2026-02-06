@@ -1,6 +1,6 @@
 APP_NAME := rw
 BIN_DIR := bin
-ENTRY := cmd/rwcli/main.go
+ENTRY := cmd/rw/main.go
 
 # Mac M4 (arm64)
 GOOS := darwin
@@ -22,7 +22,7 @@ install: build
 
 clean:
 	rm -rf $(BIN_DIR)
-	rm -f rwcli rwcli.exe
+	rm -f rw rw.exe
 
 test:
 	go test ./...

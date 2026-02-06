@@ -74,6 +74,18 @@ func (rs *RoleSwitcher) SwitchRole(profileName string) error {
 		return fmt.Errorf("failed to write active role file: %w", err)
 	}
 
+	// Auto-update AWS_PROFILE env var for current process and child processes
+	os.Setenv("AWS_PROFILE", profileName)
+	if role.Region != "" {
+		os.Setenv("AWS_DEFAULT_REGION", role.Region)
+		os.Setenv("AWS_REGION", role.Region)
+	}
+
+	// Write env file for shell sourcing
+	if err := writeEnvFile(profileName, role.Region); err != nil {
+		return fmt.Errorf("failed to write env file: %w", err)
+	}
+
 	return nil
 }
 

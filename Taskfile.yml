@@ -1,33 +1,33 @@
 version: '3'
 
 vars:
-  APP_NAME: "rwcli"
+  APP_NAME: "rw"
   BIN_DIR: "bin"
 
 tasks:
   build:
     summary: Builds the CLI application
     cmds:
-      - go build -o {{.BIN_DIR}}/{{.APP_NAME}} cmd/rwcli/main.go
+      - go build -o {{.BIN_DIR}}/{{.APP_NAME}} cmd/rw/main.go
 
   build:all:
     summary: Builds for all platforms
     cmds:
-      - GOOS=darwin GOARCH=amd64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-darwin-amd64 cmd/rwcli/main.go
-      - GOOS=darwin GOARCH=arm64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-darwin-arm64 cmd/rwcli/main.go
-      - GOOS=linux GOARCH=amd64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-linux-amd64 cmd/rwcli/main.go
-      - GOOS=windows GOARCH=amd64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-windows-amd64.exe cmd/rwcli/main.go
+      - GOOS=darwin GOARCH=amd64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-darwin-amd64 cmd/rw/main.go
+      - GOOS=darwin GOARCH=arm64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-darwin-arm64 cmd/rw/main.go
+      - GOOS=linux GOARCH=amd64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-linux-amd64 cmd/rw/main.go
+      - GOOS=windows GOARCH=amd64 go build -o {{.BIN_DIR}}/{{.APP_NAME}}-windows-amd64.exe cmd/rw/main.go
 
   install:
     summary: Installs the CLI to $GOPATH/bin
     cmds:
-      - go install cmd/rwcli/main.go
+      - go install cmd/rw/main.go
 
   clean:
     summary: Cleans build artifacts
     cmds:
       - rm -rf {{.BIN_DIR}}
-      - rm -f rwcli rwcli.exe
+      - rm -f rw rw.exe
 
   test:
     summary: Runs tests

@@ -83,7 +83,7 @@ func (mm *MSKManager) StartUI(env string, localPort int) error {
 	fmt.Printf("  Local:     http://localhost:%d\n", localPort)
 	fmt.Printf("  Brokers:   %s\n", utils.TruncateString(brokers, 60))
 	fmt.Printf("\nPress Ctrl+C to stop (pod will remain running)...")
-	fmt.Printf("To stop the pod later: rwcli msk stop %s\n\n", env)
+	fmt.Printf("To stop the pod later: rw msk stop %s\n\n", env)
 
 	return mm.startPortForward(podName, localPort)
 }
@@ -182,7 +182,7 @@ func (mm *MSKManager) startPortForward(podName string, localPort int) error {
 
 	if ctx.Err() == context.Canceled {
 		fmt.Println("✓ Port-forward stopped")
-		fmt.Printf("  Pod %s is still running. Use 'rwcli msk stop %s' to delete it.\n", podName, strings.TrimPrefix(podName, "kafka-ui-"))
+		fmt.Printf("  Pod %s is still running. Use 'rw msk stop %s' to delete it.\n", podName, strings.TrimPrefix(podName, "kafka-ui-"))
 		return nil
 	}
 

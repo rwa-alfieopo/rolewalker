@@ -95,8 +95,8 @@ func (gm *GRPCManager) ListServices() string {
 				sb.WriteString(fmt.Sprintf("%-15s %-10d %s\n", service, port, k8sService))
 			}
 
-			sb.WriteString("\nUsage: rwcli grpc <service> <env>\n")
-			sb.WriteString("Example: rwcli grpc candidate dev\n")
+			sb.WriteString("\nUsage: rw grpc <service> <env>\n")
+			sb.WriteString("Example: rw grpc candidate dev\n")
 			return sb.String()
 		}
 	}

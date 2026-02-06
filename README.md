@@ -19,72 +19,72 @@ AWS Profile & SSO Manager - CLI tool for managing AWS profiles, SSO authenticati
 ### Build from source
 
 ```bash
-go build -o rwcli cmd/rwcli/main.go
+go build -o rw cmd/rw/main.go
 ```
 
 ## Usage
 
-### CLI (rwcli)
+### CLI (rw)
 
 ```bash
 # List all profiles
-rwcli list
+rw list
 
 # Switch to a profile (updates default + kubectl context)
-rwcli switch zenith-dev
-rwcli switch zenith-dev --no-kube  # Skip kubectl context switch
+rw switch zenith-dev
+rw switch zenith-dev --no-kube  # Skip kubectl context switch
 
 # SSO login
-rwcli login zenith-dev
+rw login zenith-dev
 
 # SSO logout
-rwcli logout zenith-dev
+rw logout zenith-dev
 
 # Show current profile
-rwcli current
+rw current
 
 # Show SSO login status
-rwcli status
+rw status
 
 # Kubernetes operations
-rwcli kube dev              # Switch kubectl context
-rwcli kube list             # List contexts
+rw kube dev              # Switch kubectl context
+rw kube list             # List contexts
 
 # Database operations
-rwcli db connect dev        # Connect to database
-rwcli db backup dev --output ./backup.sql
-rwcli db restore dev --input ./backup.sql
+rw db connect dev        # Connect to database
+rw db backup dev --output ./backup.sql
+rw db restore dev --input ./backup.sql
 
 # Redis operations
-rwcli redis connect dev
+rw redis connect dev
 
 # MSK operations
-rwcli msk ui dev            # Start Kafka UI
-rwcli msk stop dev          # Stop Kafka UI
+rw msk ui dev            # Start Kafka UI
+rw msk stop dev          # Stop Kafka UI
 
 # Maintenance mode
-rwcli maintenance dev --type api --enable
-rwcli maintenance status dev
+rw maintenance dev --type api --enable
+rw maintenance status dev
 
 # Scaling
-rwcli scale preprod --preset performance
-rwcli scale list dev
+rw scale preprod --preset performance
+rw scale list dev
 
 # Tunneling
-rwcli tunnel start db dev
-rwcli tunnel list
+rw tunnel start db dev
+rw tunnel list
 
 # gRPC port forwarding
-rwcli grpc candidate dev
-rwcli grpc list
+rw grpc candidate dev
+rw grpc list
 
 # SSM parameters
-rwcli ssm get /dev/zenith/database/query/db-write-endpoint
-rwcli ssm list /dev/zenith/
+rw ssm get /dev/zenith/database/query/db-write-endpoint
+rw ssm list /dev/zenith/
 
 # Generate API keys
-rwcli keygen
-rwcli keygen 5
+rw keygen
+rw keygen 5
 ```
 
 ### Shell Integration (PowerShell)
@@ -94,7 +94,7 @@ Add to your PowerShell profile (`$PROFILE`):
 ```powershell
 function rw {
     param([string]$profile)
-    rwcli switch $profile
+    rw switch $profile
     $env:AWS_PROFILE = $profile
 }
 
@@ -107,7 +107,7 @@ Add to your `.bashrc` or `.zshrc`:
 
 ```bash
 rw() {
-    rwcli switch "$1"
+    rw switch "$1"
     export AWS_PROFILE="$1"
 }
 
@@ -123,7 +123,7 @@ rw() {
 After switching profiles, AWS CLI commands work without specifying `--profile`:
 
 ```bash
-rwcli switch zenith-dev
+rw switch zenith-dev
 aws s3 ls  # Uses zenith-dev profile
 ```
 
@@ -146,7 +146,7 @@ rolewalkers/
 │   └── ssm.go           # SSM parameter operations
 ├── cli/                 # CLI implementation
 │   └── cli.go
-├── cmd/rwcli/           # CLI entry point
+├── cmd/rw/           # CLI entry point
 │   └── main.go
 └── main.go              # Main entry point
 ```

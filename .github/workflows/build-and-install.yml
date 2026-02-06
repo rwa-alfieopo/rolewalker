@@ -14,25 +14,25 @@ jobs:
           - os: macos-latest
             goos: darwin
             goarch: amd64
-            artifact_name: rwcli-darwin-amd64
+            artifact_name: rw-darwin-amd64
           - os: macos-14
             goos: darwin
             goarch: arm64
-            artifact_name: rwcli-darwin-arm64
+            artifact_name: rw-darwin-arm64
           # Linux builds
           - os: ubuntu-latest
             goos: linux
             goarch: amd64
-            artifact_name: rwcli-linux-amd64
+            artifact_name: rw-linux-amd64
           - os: ubuntu-latest
             goos: linux
             goarch: arm64
-            artifact_name: rwcli-linux-arm64
+            artifact_name: rw-linux-arm64
           # Windows builds (latest OS only)
           - os: windows-latest
             goos: windows
             goarch: amd64
-            artifact_name: rwcli-windows-amd64.exe
+            artifact_name: rw-windows-amd64.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -49,24 +49,24 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -o ${{ matrix.artifact_name }} ./cmd/rwcli
+          go build -o ${{ matrix.artifact_name }} ./cmd/rw
 
       - name: Install (macOS/Linux)
         if: runner.os != 'Windows'
         run: |
-          sudo install -m 755 ${{ matrix.artifact_name }} /usr/local/bin/rwcli
+          sudo install -m 755 ${{ matrix.artifact_name }} /usr/local/bin/rw
 
       - name: Install (Windows)
         if: runner.os == 'Windows'
         run: |
-          mkdir -p "$env:PROGRAMFILES\rwcli"
-          copy ${{ matrix.artifact_name }} "$env:PROGRAMFILES\rwcli\rwcli.exe"
-          echo "$env:PROGRAMFILES\rwcli" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          mkdir -p "$env:PROGRAMFILES\rw"
+          copy ${{ matrix.artifact_name }} "$env:PROGRAMFILES\rw\rw.exe"
+          echo "$env:PROGRAMFILES\rw" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Verify Installation
         run: |
-          which rwcli || where rwcli
-          rwcli help || echo "Help command failed"
+          which rw || where rw
+          rw help || echo "Help command failed"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -87,6 +87,6 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            rwcli-*
+            rw-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

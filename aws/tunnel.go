@@ -66,7 +66,7 @@ func (tm *TunnelManager) Start(config TunnelConfig) error {
 	// Check if tunnel already exists
 	tunnelID := GenerateTunnelID(service, env)
 	if existing := tm.state.GetByServiceEnv(service, env); existing != nil {
-		return fmt.Errorf("tunnel already exists: %s (pod: %s, port: %d)\nUse 'rwcli tunnel stop %s %s' to stop it first",
+		return fmt.Errorf("tunnel already exists: %s (pod: %s, port: %d)\nUse 'rw tunnel stop %s %s' to stop it first",
 			tunnelID, existing.PodName, existing.LocalPort, service, env)
 	}
 
@@ -326,7 +326,7 @@ func (tm *TunnelManager) StopAll() error {
 func (tm *TunnelManager) List() string {
 	tunnels := tm.state.List()
 	if len(tunnels) == 0 {
-		return "No active tunnels.\n\nStart a tunnel with: rwcli tunnel start <service> <env>"
+		return "No active tunnels.\n\nStart a tunnel with: rw tunnel start <service> <env>"
 	}
 
 	var sb strings.Builder

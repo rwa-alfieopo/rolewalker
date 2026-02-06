@@ -256,7 +256,7 @@ func (rm *ReplicationManager) Create(env, name, sourceCluster string) error {
 	fmt.Printf("✓ Deployment created successfully!\n")
 	fmt.Printf("  Identifier: %s\n", response.BlueGreenDeployment.Identifier)
 	fmt.Printf("  Status:     %s\n", rm.formatStatus(response.BlueGreenDeployment.Status))
-	fmt.Println("\nUse 'rwcli replication status' to monitor progress")
+	fmt.Println("\nUse 'rw replication status' to monitor progress")
 
 	return nil
 }

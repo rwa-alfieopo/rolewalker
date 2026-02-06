@@ -64,6 +64,18 @@ func (ps *ProfileSwitcher) SwitchProfile(profileName string) error {
 		fmt.Printf("⚠ Could not set persistent environment: %v\n", err)
 	}
 
+	// Auto-update AWS_PROFILE env var for current process and child processes
+	os.Setenv("AWS_PROFILE", profileName)
+	if targetProfile.Region != "" {
+		os.Setenv("AWS_DEFAULT_REGION", targetProfile.Region)
+		os.Setenv("AWS_REGION", targetProfile.Region)
+	}
+
+	// Write env file for shell sourcing
+	if err := writeEnvFile(profileName, targetProfile.Region); err != nil {
+		return fmt.Errorf("failed to write env file: %w", err)
+	}
+
 	return nil
 }
 

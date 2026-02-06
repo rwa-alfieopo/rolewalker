@@ -101,11 +101,11 @@ func (c *CLI) Run(args []string) error {
 	cmdArgs := args[1:]
 
 	switch command {
-	case "list", "ls":
+	case "list", "ls", "l":
 		return c.listProfiles()
-	case "switch", "use":
+	case "switch", "use", "s":
 		if len(cmdArgs) < 1 {
-			return fmt.Errorf("usage: rwcli switch <profile-name> [--no-kube]")
+			return fmt.Errorf("usage: rw switch <profile-name> [--no-kube]")
 		}
 		// Parse --no-kube flag (kubectl context switches by default now)
 		skipKube := false
@@ -118,107 +118,115 @@ func (c *CLI) Run(args []string) error {
 			}
 		}
 		if profileName == "" {
-			return fmt.Errorf("usage: rwcli switch <profile-name> [--no-kube]")
+			return fmt.Errorf("usage: rw switch <profile-name> [--no-kube]")
 		}
 		return c.switchProfile(profileName, skipKube)
-	case "login":
+	case "login", "li":
 		if len(cmdArgs) < 1 {
-			return fmt.Errorf("usage: rwcli login <profile-name>")
+			return fmt.Errorf("usage: rw login <profile-name>")
 		}
 		return c.login(cmdArgs[0])
-	case "logout":
+	case "logout", "lo":
 		if len(cmdArgs) < 1 {
-			return fmt.Errorf("usage: rwcli logout <profile-name>")
+			return fmt.Errorf("usage: rw logout <profile-name>")
 		}
 		return c.logout(cmdArgs[0])
-	case "status":
+	case "status", "st":
 		return c.status()
-	case "current":
+	case "current", "c":
 		return c.current()
-	case "context":
+	case "context", "ctx":
 		return c.context(cmdArgs)
-	case "kube", "k8s":
+	case "kube", "k8s", "k":
 		return c.kube(cmdArgs)
-	case "db":
+	case "db", "d":
 		return c.db(cmdArgs)
-	case "tunnel":
+	case "tunnel", "t":
 		return c.tunnel(cmdArgs)
-	case "port":
+	case "port", "p":
 		return c.port(cmdArgs)
-	case "grpc":
+	case "grpc", "g":
 		return c.grpc(cmdArgs)
-	case "redis":
+	case "redis", "r":
 		return c.redis(cmdArgs)
-	case "msk":
+	case "msk", "m":
 		return c.msk(cmdArgs)
-	case "maintenance":
+	case "maintenance", "mt":
 		return c.maintenance(cmdArgs)
-	case "scale":
+	case "scale", "sc":
 		return c.scale(cmdArgs)
-	case "replication":
+	case "replication", "rep":
 		return c.replication(cmdArgs)
-	case "keygen":
+	case "keygen", "kg":
 		return c.keygen(cmdArgs)
 	case "ssm":
 		return c.ssm(cmdArgs)
-	case "web":
+	case "set":
+		return c.set(cmdArgs)
+	case "web", "w":
 		return c.web(cmdArgs)
 	case "help", "--help", "-h":
 		return c.showHelp()
 	case "version", "--version", "-v":
 		return c.showVersion()
-	case "example", "examples":
+	case "example", "examples", "ex":
 		return c.example()
 	default:
-		return fmt.Errorf("unknown command: %s\nRun 'rwcli help' for usage", command)
+		return fmt.Errorf("unknown command: %s\nRun 'rw help' for usage", command)
 	}
 }
 func (c *CLI) example() error {
 	examples := []string{
 		"# Profile Management",
-		"rwcli list                          # List all available AWS profiles",
-		"rwcli switch dev                    # Switch to dev profile",
-		"rwcli switch prod --no-kube         # Switch to prod without kubectl context",
-		"rwcli login staging                 # Login to staging profile",
-		"rwcli status                        # Show status of all profiles",
-		"rwcli current                       # Show current active profile",
-		"rwcli context                       # Show compact context info",
-		"rwcli context --format short        # Output for shell prompts",
-		"rwcli context --format json         # JSON output",
+		"rw list                          # List all available AWS profiles",
+		"rw switch dev                    # Switch to dev profile",
+		"rw switch prod --no-kube         # Switch to prod without kubectl context",
+		"rw login staging                 # Login to staging profile",
+		"rw status                        # Show status of all profiles",
+		"rw current                       # Show current active profile",
+		"rw context                       # Show compact context info",
+		"rw context --format short        # Output for shell prompts",
+		"rw context --format json         # JSON output",
 		"",
 		"# Kubernetes",
-		"rwcli kube                          # Show current kubectl context",
-		"rwcli kube set-namespace            # Set default namespace",
-		"rwcli kube pods                     # List pods in current namespace",
+		"rw kube                          # Show current kubectl context",
+		"rw kube set-namespace            # Set default namespace",
+		"rw kube pods                     # List pods in current namespace",
 		"",
 		"# Database",
-		"rwcli db connect                    # Connect to database",
-		"rwcli db backup                     # Create database backup",
-		"rwcli db restore backup.sql         # Restore from backup",
+		"rw db connect                    # Connect to database",
+		"rw db backup                     # Create database backup",
+		"rw db restore backup.sql         # Restore from backup",
 		"",
 		"# Tunnels & Port Forwarding",
-		"rwcli tunnel start db               # Start database tunnel",
-		"rwcli tunnel stop db                # Stop database tunnel",
-		"rwcli port list                     # List available port forwards",
+		"rw tunnel start db               # Start database tunnel",
+		"rw tunnel stop db                # Stop database tunnel",
+		"rw port list                     # List available port forwards",
 		"",
 		"# Services",
-		"rwcli grpc                          # Connect to gRPC service",
-		"rwcli redis connect                 # Connect to Redis",
-		"rwcli msk ui                        # Open Kafka UI",
+		"rw grpc                          # Connect to gRPC service",
+		"rw redis connect                 # Connect to Redis",
+		"rw msk ui                        # Open Kafka UI",
 		"",
 		"# Maintenance & Scaling",
-		"rwcli maintenance status            # Check maintenance mode",
-		"rwcli maintenance on                # Enable maintenance mode",
-		"rwcli scale list                    # List scalable resources",
-		"rwcli scale deployment api 3        # Scale API deployment to 3 replicas",
+		"rw maintenance status            # Check maintenance mode",
+		"rw maintenance on                # Enable maintenance mode",
+		"rw scale list                    # List scalable resources",
+		"rw scale deployment api 3        # Scale API deployment to 3 replicas",
 		"",
 		"# SSM Parameters",
-		"rwcli ssm get /app/config           # Get SSM parameter",
-		"rwcli ssm list /app/                # List SSM parameters",
+		"rw ssm get /app/config           # Get SSM parameter",
+		"rw ssm list /app/                # List SSM parameters",
 		"",
 		"# Replication",
-		"rwcli replication status            # Check replication status",
-		"rwcli replication switch primary    # Switch to primary",
+		"rw replication status            # Check replication status",
+		"rw replication switch primary    # Switch to primary",
+		"",
+		"# Shell Prompt",
+		"rw set prompt                    # Enable prompt with all components",
+		"rw set prompt time folder aws    # Pick specific components",
+		"rw set prompt --reset            # Remove prompt customization",
+		"rw set prompt --shell bash       # Force a specific shell",
 	}
 
 	fmt.Println("Examples:")
@@ -231,74 +239,103 @@ func (c *CLI) example() error {
 
 
 func (c *CLI) showHelp() error {
-	help := `rolewalkers (rwcli) - AWS Profile & SSO Manager
+	help := `rolewalkers (rw) - AWS Profile & SSO Manager
 
-Usage: rwcli <command> [arguments]
+Usage: rw <command> [arguments]
 
-Commands:
-  list, ls              List all AWS profiles
-  switch, use <profile> Switch to a profile (updates default + kubectl context)
-    --no-kube           Skip kubectl context switch
-  login <profile>       SSO login for a profile
-  logout <profile>      SSO logout for a profile
-  status                Show login status for all SSO profiles
-  current               Show current active profile
-  context [--format]    Show compact context (profile, account, eks, namespace)
-    --format short      Compact format for shell prompts
-    --format json       JSON output
-  kube <env>            Switch kubectl context to environment
-  kube list             List available kubectl contexts
-  kube set namespace    Interactively set default namespace
-  port <svc> <env>      Get local port for a service/env
-  port --list           List all port mappings
-  db connect <env>      Connect to database via interactive psql
-    --write             Connect to write node (default: read)
-    --command           Connect to command database (default: query)
-  db backup <env>       Backup database to local file
-    --output, -o <file> Output file path (required)
-    --schema-only       Backup schema only, no data
-  db restore <env>      Restore database from local file
-    --input, -i <file>  Input file path (required)
-    --clean             Drop objects before recreating
-    --yes, -y           Skip confirmation prompt
-  redis connect <env>   Connect to Redis cluster via interactive redis-cli
-  msk ui <env>          Start Kafka UI for MSK cluster
-    --port <port>       Local port (default: 8080)
-  msk stop <env>        Stop the Kafka UI pod
-  maintenance <env> --type <type> --enable|--disable
-                        Toggle Fastly maintenance mode
+Profile Management:
+  list, ls, l             List all AWS profiles
+  switch, use, s <profile>
+                          Switch to a profile (updates default + kubectl context)
+    --no-kube               Skip kubectl context switch
+  login, li <profile>     SSO login for a profile
+  logout, lo <profile>    SSO logout for a profile
+  status, st              Show login status for all SSO profiles
+  current, c              Show current active profile
+  context, ctx [--format] Show compact context (profile, account, eks, namespace)
+    --format short          Compact format for shell prompts
+    --format json           JSON output
+
+Kubernetes:
+  kube, k <env>           Switch kubectl context to environment
+  kube list               List available kubectl contexts
+  kube set namespace      Interactively set default namespace
+
+Port & Tunnel:
+  port, p <svc> <env>     Get local port for a service/env
+  port --list             List all port mappings
+  tunnel, t start <svc> <env>
+                          Start a tunnel to a service
+  tunnel stop <svc> <env> Stop a specific tunnel
+  tunnel stop --all       Stop all tunnels
+  tunnel list             List active tunnels
+
+Database:
+  db, d connect <env>     Connect to database via interactive psql
+    --write                 Connect to write node (default: read)
+    --command               Connect to command database (default: query)
+  db backup <env>         Backup database to local file
+    --output, -o <file>     Output file path (required)
+    --schema-only           Backup schema only, no data
+  db restore <env>        Restore database from local file
+    --input, -i <file>      Input file path (required)
+    --clean                 Drop objects before recreating
+    --yes, -y               Skip confirmation prompt
+
+Redis:
+  redis, r connect <env>  Connect to Redis cluster via interactive redis-cli
+
+Kafka (MSK):
+  msk, m ui <env>         Start Kafka UI for MSK cluster
+    --port <port>           Local port (default: 8080)
+  msk stop <env>          Stop the Kafka UI pod
+
+Maintenance:
+  maintenance, mt <env> --type <type> --enable|--disable
+                          Toggle Fastly maintenance mode
   maintenance status <env>
-                        Check maintenance mode status
-  scale <env> --preset <preset>
-                        Scale all HPAs using a preset
+                          Check maintenance mode status
+
+Scaling:
+  scale, sc <env> --preset <preset>
+                          Scale all HPAs using a preset
   scale <env> --service <svc> --min <n> --max <n>
-                        Scale a specific service's HPA
-  scale list <env>      List HPAs and current scaling
-  replication status <env>
-                        Show Blue-Green deployment status
+                          Scale a specific service's HPA
+  scale list <env>        List HPAs and current scaling
+
+Replication (Blue-Green):
+  replication, rep status <env>
+                          Show Blue-Green deployment status
   replication switch <id> [--yes]
-                        Switchover a Blue-Green deployment
+                          Switchover a Blue-Green deployment
   replication create <env> --name <name> --source <cluster>
-                        Create a new Blue-Green deployment
+                          Create a new Blue-Green deployment
   replication delete <id> [--delete-target] [--yes]
-                        Delete a Blue-Green deployment
-  tunnel start <svc> <env>  Start a tunnel to a service
-  tunnel stop <svc> <env>   Stop a specific tunnel
-  tunnel stop --all         Stop all tunnels
-  tunnel list               List active tunnels
-  grpc <service> <env>  Port-forward to a gRPC microservice
-  grpc list             List available gRPC services
-  ssm get <path>        Get SSM parameter value
-    --decrypt           Decrypt SecureString (default: enabled)
-  ssm list <prefix>     List parameters under a path prefix
-  web                   Start web UI for account/role management
-    --port <port>       Local port (default: 8080)
-  keygen [count]        Generate cryptographically secure API keys
-  help                  Show this help message
-  example               Show usage examples
+                          Delete a Blue-Green deployment
+
+gRPC:
+  grpc, g <service> <env> Port-forward to a gRPC microservice
+  grpc list               List available gRPC services
+
+SSM Parameters:
+  ssm get <path>          Get SSM parameter value
+    --decrypt               Decrypt SecureString (default: enabled)
+  ssm list <prefix>       List parameters under a path prefix
+
+Configuration:
+  set prompt [components] Configure shell prompt (time, folder, aws, k8s, git)
+    --reset                 Remove prompt customization
+    --shell <shell>         Override shell detection
+
+Utilities:
+  web, w                  Start web UI for account/role management
+    --port <port>           Local port (default: 8080)
+  keygen, kg [count]      Generate cryptographically secure API keys
+  help, -h                Show this help message
+  example, ex             Show usage examples
 
 Tunnel Services: db, redis, elasticsearch, kafka, msk, rabbitmq, grpc
-gRPC Services: candidate, job, client, organisation, user, email, billing, core
+gRPC Services:   candidate, job, client, organisation, user, email, billing, core
 `
 	fmt.Println(help)
 	return nil
@@ -666,7 +703,7 @@ func (c *CLI) keygen(args []string) error {
 
 func (c *CLI) ssm(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli ssm <get|list> <path>\n\nSubcommands:\n  get <path>     Get parameter value\n  list <prefix>  List parameters under prefix\n\nExamples:\n  rwcli ssm get /dev/zenith/database/query/db-write-endpoint\n  rwcli ssm get /prod/zenith/redis/cluster-endpoint --decrypt\n  rwcli ssm list /dev/zenith/")
+		return fmt.Errorf("usage: rw ssm <get|list> <path>\n\nSubcommands:\n  get <path>     Get parameter value\n  list <prefix>  List parameters under prefix\n\nExamples:\n  rw ssm get /dev/zenith/database/query/db-write-endpoint\n  rw ssm get /prod/zenith/redis/cluster-endpoint --decrypt\n  rw ssm list /dev/zenith/")
 	}
 
 	subCmd := args[0]
@@ -684,7 +721,7 @@ func (c *CLI) ssm(args []string) error {
 
 func (c *CLI) ssmGet(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli ssm get <path> [--decrypt]\n\nExamples:\n  rwcli ssm get /dev/zenith/database/query/db-write-endpoint\n  rwcli ssm get /prod/zenith/redis/cluster-endpoint")
+		return fmt.Errorf("usage: rw ssm get <path> [--decrypt]\n\nExamples:\n  rw ssm get /dev/zenith/database/query/db-write-endpoint\n  rw ssm get /prod/zenith/redis/cluster-endpoint")
 	}
 
 	path := args[0]
@@ -701,7 +738,7 @@ func (c *CLI) ssmGet(args []string) error {
 
 func (c *CLI) ssmList(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli ssm list <prefix>\n\nExamples:\n  rwcli ssm list /dev/zenith/\n  rwcli ssm list /prod/zenith/database/")
+		return fmt.Errorf("usage: rw ssm list <prefix>\n\nExamples:\n  rw ssm list /dev/zenith/\n  rw ssm list /prod/zenith/database/")
 	}
 
 	prefix := args[0]
@@ -735,7 +772,7 @@ func (c *CLI) port(args []string) error {
 
 	// Require service and environment
 	if len(args) < 2 {
-		return fmt.Errorf("usage: rwcli port <service> <env>\n       rwcli port --list\n\nServices: %s\nEnvironments: %s",
+		return fmt.Errorf("usage: rw port <service> <env>\n       rw port --list\n\nServices: %s\nEnvironments: %s",
 			portConfig.GetServices(), portConfig.GetEnvironments())
 	}
 
@@ -762,7 +799,7 @@ func (c *CLI) port(args []string) error {
 func (c *CLI) kube(args []string) error {
 	// Handle no args - show help
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli kube <env>\n       rwcli kube list\n       rwcli kube set namespace\n\nExamples:\n  rwcli kube dev              # Switch to dev EKS cluster context\n  rwcli kube prod             # Switch to prod EKS cluster context\n  rwcli kube list             # List all available contexts\n  rwcli kube set namespace    # Interactively set default namespace")
+		return fmt.Errorf("usage: rw kube <env>\n       rw kube list\n       rw kube set namespace\n\nExamples:\n  rw kube dev              # Switch to dev EKS cluster context\n  rw kube prod             # Switch to prod EKS cluster context\n  rw kube list             # List all available contexts\n  rw kube set namespace    # Interactively set default namespace")
 	}
 
 	subCmd := args[0]
@@ -790,7 +827,7 @@ func (c *CLI) kube(args []string) error {
 	// Handle set subcommand
 	if subCmd == "set" {
 		if len(args) < 2 {
-			return fmt.Errorf("usage: rwcli kube set namespace")
+			return fmt.Errorf("usage: rw kube set namespace")
 		}
 		if args[1] == "namespace" || args[1] == "ns" {
 			return c.kubeSetNamespace()
@@ -899,7 +936,7 @@ func (c *CLI) showKubeContext(namespace string) error {
 
 func (c *CLI) tunnel(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli tunnel <start|stop|list> [service] [env]\n\nSubcommands:\n  start <service> <env>  Start a tunnel\n  stop <service> <env>   Stop a specific tunnel\n  stop --all             Stop all tunnels\n  list                   List active tunnels\n  cleanup                Remove stale tunnel entries\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage", aws.GetSupportedServices())
+		return fmt.Errorf("usage: rw tunnel <start|stop|list> [service] [env]\n\nSubcommands:\n  start <service> <env>  Start a tunnel\n  stop <service> <env>   Stop a specific tunnel\n  stop --all             Stop all tunnels\n  list                   List active tunnels\n  cleanup                Remove stale tunnel entries\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage", aws.GetSupportedServices())
 	}
 
 	subCmd := args[0]
@@ -922,7 +959,7 @@ func (c *CLI) tunnel(args []string) error {
 
 func (c *CLI) tunnelStart(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: rwcli tunnel start <service> <env>\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage", aws.GetSupportedServices())
+		return fmt.Errorf("usage: rw tunnel start <service> <env>\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage", aws.GetSupportedServices())
 	}
 
 	service := args[0]
@@ -956,7 +993,7 @@ func (c *CLI) tunnelStop(args []string) error {
 	}
 
 	if len(args) < 2 {
-		return fmt.Errorf("usage: rwcli tunnel stop <service> <env>\n       rwcli tunnel stop --all")
+		return fmt.Errorf("usage: rw tunnel stop <service> <env>\n       rw tunnel stop --all")
 	}
 
 	service := args[0]
@@ -967,7 +1004,7 @@ func (c *CLI) tunnelStop(args []string) error {
 
 func (c *CLI) grpc(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli grpc <service> <env>\n       rwcli grpc list\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage",
+		return fmt.Errorf("usage: rw grpc <service> <env>\n       rw grpc list\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage",
 			c.grpcManager.GetServices())
 	}
 
@@ -979,7 +1016,7 @@ func (c *CLI) grpc(args []string) error {
 
 	// Require service and environment
 	if len(args) < 2 {
-		return fmt.Errorf("usage: rwcli grpc <service> <env>\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage",
+		return fmt.Errorf("usage: rw grpc <service> <env>\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage",
 			c.grpcManager.GetServices())
 	}
 
@@ -991,7 +1028,7 @@ func (c *CLI) grpc(args []string) error {
 
 func (c *CLI) redis(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli redis connect <env>\n\nSubcommands:\n  connect <env>  Connect to Redis cluster via interactive redis-cli\n\nExamples:\n  rwcli redis connect dev   # Connect to dev Redis cluster\n  rwcli redis connect prod  # Connect to prod Redis cluster")
+		return fmt.Errorf("usage: rw redis connect <env>\n\nSubcommands:\n  connect <env>  Connect to Redis cluster via interactive redis-cli\n\nExamples:\n  rw redis connect dev   # Connect to dev Redis cluster\n  rw redis connect prod  # Connect to prod Redis cluster")
 	}
 
 	subCmd := args[0]
@@ -1007,7 +1044,7 @@ func (c *CLI) redis(args []string) error {
 
 func (c *CLI) redisConnect(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli redis connect <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+		return fmt.Errorf("usage: rw redis connect <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
 	}
 
 	env := args[0]
@@ -1016,7 +1053,7 @@ func (c *CLI) redisConnect(args []string) error {
 
 func (c *CLI) msk(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli msk <ui|stop> <env>\n\nSubcommands:\n  ui <env>    Start Kafka UI for MSK cluster\n  stop <env>  Stop the Kafka UI pod\n\nExamples:\n  rwcli msk ui dev              # Start Kafka UI on localhost:8080\n  rwcli msk ui prod --port 9090 # Start on custom port\n  rwcli msk stop dev            # Stop the Kafka UI pod")
+		return fmt.Errorf("usage: rw msk <ui|stop> <env>\n\nSubcommands:\n  ui <env>    Start Kafka UI for MSK cluster\n  stop <env>  Stop the Kafka UI pod\n\nExamples:\n  rw msk ui dev              # Start Kafka UI on localhost:8080\n  rw msk ui prod --port 9090 # Start on custom port\n  rw msk stop dev            # Stop the Kafka UI pod")
 	}
 
 	subCmd := args[0]
@@ -1034,7 +1071,7 @@ func (c *CLI) msk(args []string) error {
 
 func (c *CLI) mskUI(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli msk ui <env> [--port <port>]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+		return fmt.Errorf("usage: rw msk ui <env> [--port <port>]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
 	}
 
 	env := ""
@@ -1062,7 +1099,7 @@ func (c *CLI) mskUI(args []string) error {
 	}
 
 	if env == "" {
-		return fmt.Errorf("environment is required\n\nUsage: rwcli msk ui <env> [--port <port>]")
+		return fmt.Errorf("environment is required\n\nUsage: rw msk ui <env> [--port <port>]")
 	}
 
 	return c.mskManager.StartUI(env, port)
@@ -1070,7 +1107,7 @@ func (c *CLI) mskUI(args []string) error {
 
 func (c *CLI) mskStop(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli msk stop <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+		return fmt.Errorf("usage: rw msk stop <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
 	}
 
 	env := args[0]
@@ -1079,7 +1116,7 @@ func (c *CLI) mskStop(args []string) error {
 
 func (c *CLI) maintenance(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli maintenance <env> --type <api|pwa|all> --enable|--disable\n       rwcli maintenance status <env>\n\nSubcommands:\n  <env> --type <type> --enable   Enable maintenance mode\n  <env> --type <type> --disable  Disable maintenance mode\n  status <env>                   Check current maintenance status\n\nTypes: api, pwa, all\nEnvironments: snd, dev, sit, preprod, trg, prod\n\nRequires: FASTLY_API_TOKEN environment variable")
+		return fmt.Errorf("usage: rw maintenance <env> --type <api|pwa|all> --enable|--disable\n       rw maintenance status <env>\n\nSubcommands:\n  <env> --type <type> --enable   Enable maintenance mode\n  <env> --type <type> --disable  Disable maintenance mode\n  status <env>                   Check current maintenance status\n\nTypes: api, pwa, all\nEnvironments: snd, dev, sit, preprod, trg, prod\n\nRequires: FASTLY_API_TOKEN environment variable")
 	}
 
 	// Handle status subcommand
@@ -1093,7 +1130,7 @@ func (c *CLI) maintenance(args []string) error {
 
 func (c *CLI) maintenanceStatus(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli maintenance status <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod")
+		return fmt.Errorf("usage: rw maintenance status <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod")
 	}
 
 	env := args[0]
@@ -1148,7 +1185,7 @@ func (c *CLI) maintenanceToggle(args []string) error {
 	}
 
 	if env == "" {
-		return fmt.Errorf("environment is required\n\nUsage: rwcli maintenance <env> --type <api|pwa|all> --enable|--disable")
+		return fmt.Errorf("environment is required\n\nUsage: rw maintenance <env> --type <api|pwa|all> --enable|--disable")
 	}
 
 	if serviceType == "" {
@@ -1178,7 +1215,7 @@ func (c *CLI) maintenanceToggle(args []string) error {
 
 func (c *CLI) scale(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli scale <env> --preset <preset>\n       rwcli scale <env> --service <svc> --min <n> --max <n>\n       rwcli scale list <env>\n\nPresets: normal (2/10), performance (10/50), minimal (1/3)\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage\n\nExamples:\n  rwcli scale preprod --preset performance\n  rwcli scale prod --preset normal\n  rwcli scale dev --service candidate --min 5 --max 10\n  rwcli scale list dev")
+		return fmt.Errorf("usage: rw scale <env> --preset <preset>\n       rw scale <env> --service <svc> --min <n> --max <n>\n       rw scale list <env>\n\nPresets: normal (2/10), performance (10/50), minimal (1/3)\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage\n\nExamples:\n  rw scale preprod --preset performance\n  rw scale prod --preset normal\n  rw scale dev --service candidate --min 5 --max 10\n  rw scale list dev")
 	}
 
 	// Handle list subcommand
@@ -1274,7 +1311,7 @@ func (c *CLI) scale(args []string) error {
 
 func (c *CLI) scaleList(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli scale list <env>")
+		return fmt.Errorf("usage: rw scale list <env>")
 	}
 
 	env := args[0]
@@ -1289,7 +1326,7 @@ func (c *CLI) scaleList(args []string) error {
 
 func (c *CLI) db(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli db <connect|backup|restore> <env> [options]\n\nSubcommands:\n  connect <env>  Connect to database via interactive psql\n  backup <env>   Backup database to local file\n  restore <env>  Restore database from local file\n\nConnect flags:\n  --write, -w    Connect to write node (default: read)\n  --command, -c  Connect to command database (default: query)\n\nBackup flags:\n  --output, -o <file>  Output file path (required)\n  --schema-only        Backup schema only, no data\n\nRestore flags:\n  --input, -i <file>   Input file path (required)\n  --clean              Drop objects before recreating\n  --yes, -y            Skip confirmation prompt\n\nExamples:\n  rwcli db connect dev              # Connect to dev query database (read node)\n  rwcli db connect prod --write     # Connect to prod write node\n  rwcli db backup dev --output ./backup.sql\n  rwcli db backup dev --output ./schema.sql --schema-only\n  rwcli db restore dev --input ./backup.sql\n  rwcli db restore dev --input ./backup.sql --clean --yes")
+		return fmt.Errorf("usage: rw db <connect|backup|restore> <env> [options]\n\nSubcommands:\n  connect <env>  Connect to database via interactive psql\n  backup <env>   Backup database to local file\n  restore <env>  Restore database from local file\n\nConnect flags:\n  --write, -w    Connect to write node (default: read)\n  --command, -c  Connect to command database (default: query)\n\nBackup flags:\n  --output, -o <file>  Output file path (required)\n  --schema-only        Backup schema only, no data\n\nRestore flags:\n  --input, -i <file>   Input file path (required)\n  --clean              Drop objects before recreating\n  --yes, -y            Skip confirmation prompt\n\nExamples:\n  rw db connect dev              # Connect to dev query database (read node)\n  rw db connect prod --write     # Connect to prod write node\n  rw db backup dev --output ./backup.sql\n  rw db backup dev --output ./schema.sql --schema-only\n  rw db restore dev --input ./backup.sql\n  rw db restore dev --input ./backup.sql --clean --yes")
 	}
 
 	subCmd := args[0]
@@ -1309,7 +1346,7 @@ func (c *CLI) db(args []string) error {
 
 func (c *CLI) dbConnect(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli db connect <env> [--write] [--command]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+		return fmt.Errorf("usage: rw db connect <env> [--write] [--command]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
 	}
 
 	config := aws.DatabaseConfig{
@@ -1332,7 +1369,7 @@ func (c *CLI) dbConnect(args []string) error {
 	}
 
 	if config.Environment == "" {
-		return fmt.Errorf("environment is required\n\nUsage: rwcli db connect <env> [--write] [--command]")
+		return fmt.Errorf("environment is required\n\nUsage: rw db connect <env> [--write] [--command]")
 	}
 
 	return c.dbManager.Connect(config)
@@ -1340,7 +1377,7 @@ func (c *CLI) dbConnect(args []string) error {
 
 func (c *CLI) dbBackup(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli db backup <env> --output <file> [--schema-only]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+		return fmt.Errorf("usage: rw db backup <env> --output <file> [--schema-only]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
 	}
 
 	config := aws.BackupConfig{}
@@ -1365,11 +1402,11 @@ func (c *CLI) dbBackup(args []string) error {
 	}
 
 	if config.Environment == "" {
-		return fmt.Errorf("environment is required\n\nUsage: rwcli db backup <env> --output <file>")
+		return fmt.Errorf("environment is required\n\nUsage: rw db backup <env> --output <file>")
 	}
 
 	if config.OutputFile == "" {
-		return fmt.Errorf("--output is required\n\nUsage: rwcli db backup <env> --output <file>")
+		return fmt.Errorf("--output is required\n\nUsage: rw db backup <env> --output <file>")
 	}
 
 	return c.dbManager.Backup(config)
@@ -1377,7 +1414,7 @@ func (c *CLI) dbBackup(args []string) error {
 
 func (c *CLI) dbRestore(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli db restore <env> --input <file> [--clean] [--yes]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+		return fmt.Errorf("usage: rw db restore <env> --input <file> [--clean] [--yes]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
 	}
 
 	config := aws.RestoreConfig{}
@@ -1405,11 +1442,11 @@ func (c *CLI) dbRestore(args []string) error {
 	}
 
 	if config.Environment == "" {
-		return fmt.Errorf("environment is required\n\nUsage: rwcli db restore <env> --input <file>")
+		return fmt.Errorf("environment is required\n\nUsage: rw db restore <env> --input <file>")
 	}
 
 	if config.InputFile == "" {
-		return fmt.Errorf("--input is required\n\nUsage: rwcli db restore <env> --input <file>")
+		return fmt.Errorf("--input is required\n\nUsage: rw db restore <env> --input <file>")
 	}
 
 	// Production safety guard
@@ -1519,10 +1556,10 @@ func (c *CLI) initPowerShell(homeDir string) error {
 function rw {
     param([Parameter(Position=0)][string]$profile)
     if (-not $profile) {
-        rwcli list
+        rw list
         return
     }
-    $result = rwcli switch $profile 2>&1
+    $result = rw switch $profile 2>&1
     if ($LASTEXITCODE -eq 0) {
         $env:AWS_PROFILE = $profile
         Write-Host "✓ Switched to: $profile" -ForegroundColor Green
@@ -1534,7 +1571,7 @@ function rw {
 # Tab completion for rw
 Register-ArgumentCompleter -CommandName rw -ParameterName profile -ScriptBlock {
     param($commandName, $parameterName, $wordToComplete)
-    (rwcli list 2>$null | Select-String '^\s+(\S+)' -AllMatches).Matches | 
+    (rw list 2>$null | Select-String '^\s+(\S+)' -AllMatches).Matches | 
         ForEach-Object { $_.Groups[1].Value } | 
         Where-Object { $_ -like "$wordToComplete*" }
 }
@@ -1574,10 +1611,10 @@ func (c *CLI) initBash(homeDir string) error {
 # rolewalkers - AWS Profile Switcher
 rw() {
     if [ -z "$1" ]; then
-        rwcli list
+        rw list
         return
     fi
-    if rwcli switch "$1"; then
+    if rw switch "$1"; then
         export AWS_PROFILE="$1"
         echo "✓ Switched to: $1"
     fi
@@ -1585,7 +1622,7 @@ rw() {
 
 # Tab completion for rw
 _rw_completions() {
-    local profiles=$(rwcli list 2>/dev/null | grep -oP '^\s+\K\S+')
+    local profiles=$(rw list 2>/dev/null | grep -oP '^\s+\K\S+')
     COMPREPLY=($(compgen -W "$profiles" -- "${COMP_WORDS[1]}"))
 }
 complete -F _rw_completions rw
@@ -1625,10 +1662,10 @@ func (c *CLI) initZsh(homeDir string) error {
 # rolewalkers - AWS Profile Switcher
 rw() {
     if [ -z "$1" ]; then
-        rwcli list
+        rw list
         return
     fi
-    if rwcli switch "$1"; then
+    if rw switch "$1"; then
         export AWS_PROFILE="$1"
         echo "✓ Switched to: $1"
     fi
@@ -1636,7 +1673,7 @@ rw() {
 
 # Tab completion for rw
 _rw() {
-    local profiles=($(rwcli list 2>/dev/null | grep -oP '^\s+\K\S+'))
+    local profiles=($(rw list 2>/dev/null | grep -oP '^\s+\K\S+'))
     _describe 'profile' profiles
 }
 compdef _rw rw
@@ -1663,7 +1700,7 @@ compdef _rw rw
 
 func (c *CLI) replication(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli replication <status|switch|create|delete> [options]\n\nSubcommands:\n  status <env>           Show Blue-Green deployment status\n  switch <id> [--yes]    Switchover a deployment\n  create <env> --name <name> --source <cluster>\n                         Create a new Blue-Green deployment\n  delete <id> [--delete-target] [--yes]\n                         Delete a Blue-Green deployment\n\nExamples:\n  rwcli replication status dev\n  rwcli replication switch bgd-abc123\n  rwcli replication create dev --name my-bg --source prod-db-cluster\n  rwcli replication delete bgd-abc123 --yes")
+		return fmt.Errorf("usage: rw replication <status|switch|create|delete> [options]\n\nSubcommands:\n  status <env>           Show Blue-Green deployment status\n  switch <id> [--yes]    Switchover a deployment\n  create <env> --name <name> --source <cluster>\n                         Create a new Blue-Green deployment\n  delete <id> [--delete-target] [--yes]\n                         Delete a Blue-Green deployment\n\nExamples:\n  rw replication status dev\n  rw replication switch bgd-abc123\n  rw replication create dev --name my-bg --source prod-db-cluster\n  rw replication delete bgd-abc123 --yes")
 	}
 
 	subCmd := args[0]
@@ -1685,7 +1722,7 @@ func (c *CLI) replication(args []string) error {
 
 func (c *CLI) replicationStatus(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli replication status <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+		return fmt.Errorf("usage: rw replication status <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
 	}
 
 	env := args[0]
@@ -1700,7 +1737,7 @@ func (c *CLI) replicationStatus(args []string) error {
 
 func (c *CLI) replicationSwitch(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli replication switch <deployment-id> [--yes]\n\nExample:\n  rwcli replication switch bgd-abc123def456")
+		return fmt.Errorf("usage: rw replication switch <deployment-id> [--yes]\n\nExample:\n  rw replication switch bgd-abc123def456")
 	}
 
 	deploymentID := ""
@@ -1734,7 +1771,7 @@ func (c *CLI) replicationSwitch(args []string) error {
 
 func (c *CLI) replicationCreate(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli replication create <env> --name <name> --source <cluster>\n\nExample:\n  rwcli replication create dev --name my-blue-green --source prod-db-cluster")
+		return fmt.Errorf("usage: rw replication create <env> --name <name> --source <cluster>\n\nExample:\n  rw replication create dev --name my-blue-green --source prod-db-cluster")
 	}
 
 	env := ""
@@ -1792,7 +1829,7 @@ func (c *CLI) replicationCreate(args []string) error {
 
 func (c *CLI) replicationDelete(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rwcli replication delete <deployment-id> [--delete-target] [--yes]\n\nExample:\n  rwcli replication delete bgd-abc123def456 --yes")
+		return fmt.Errorf("usage: rw replication delete <deployment-id> [--delete-target] [--yes]\n\nExample:\n  rw replication delete bgd-abc123def456 --yes")
 	}
 
 	deploymentID := ""
@@ -1825,6 +1862,97 @@ func (c *CLI) replicationDelete(args []string) error {
 	}
 
 	return c.replicationManager.Delete(deploymentID, deleteTarget)
+}
+
+func (c *CLI) set(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: rw set <prompt> [options]\n\nSubcommands:\n  prompt [components...]  Configure shell prompt\n    Components: time, folder, aws, k8s, git\n    --reset               Remove rw prompt customization\n    --shell <shell>       Override shell detection (zsh, bash, powershell)\n\nExamples:\n  rw set prompt                          # Enable all components\n  rw set prompt time folder aws git      # Pick specific components\n  rw set prompt --reset                  # Remove prompt customization")
+	}
+
+	subCmd := args[0]
+	subArgs := args[1:]
+
+	switch subCmd {
+	case "prompt":
+		return c.setPrompt(subArgs)
+	default:
+		return fmt.Errorf("unknown set subcommand: %s\nUse: prompt", subCmd)
+	}
+}
+
+func (c *CLI) setPrompt(args []string) error {
+	pm := aws.NewPromptManager()
+
+	// Parse flags
+	shell := pm.DetectShell()
+	reset := false
+	var components []aws.PromptComponent
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--reset", "--remove":
+			reset = true
+		case "--shell":
+			if i+1 < len(args) {
+				i++
+				shell = strings.ToLower(args[i])
+			} else {
+				return fmt.Errorf("--shell requires a value (zsh, bash, powershell)")
+			}
+		default:
+			if !strings.HasPrefix(args[i], "-") {
+				comp := aws.PromptComponent(strings.ToLower(args[i]))
+				valid := false
+				for _, c := range aws.AllPromptComponents() {
+					if comp == c {
+						valid = true
+						break
+					}
+				}
+				if !valid {
+					return fmt.Errorf("unknown prompt component: %s\nAvailable: time, folder, aws, k8s, git", args[i])
+				}
+				components = append(components, comp)
+			}
+		}
+	}
+
+	profilePath, err := pm.GetShellProfilePath(shell)
+	if err != nil {
+		return err
+	}
+
+	// Handle reset
+	if reset {
+		if err := pm.RemovePrompt(shell); err != nil {
+			return fmt.Errorf("failed to remove prompt: %w", err)
+		}
+		fmt.Printf("✓ Removed rw prompt from: %s\n", profilePath)
+		fmt.Printf("\nReload your shell:\n  source %s\n", profilePath)
+		return nil
+	}
+
+	// Default to all components if none specified
+	if len(components) == 0 {
+		components = aws.AllPromptComponents()
+	}
+
+	if err := pm.InstallPrompt(shell, components); err != nil {
+		return fmt.Errorf("failed to install prompt: %w", err)
+	}
+
+	fmt.Printf("✓ Prompt installed to: %s\n", profilePath)
+	fmt.Printf("  Shell:      %s\n", shell)
+	fmt.Printf("  Components: ")
+	for i, comp := range components {
+		if i > 0 {
+			fmt.Print(", ")
+		}
+		fmt.Print(string(comp))
+	}
+	fmt.Println()
+	fmt.Printf("\nReload your shell:\n  source %s\n", profilePath)
+	return nil
 }
 
 // RunCLI is the entry point for CLI mode

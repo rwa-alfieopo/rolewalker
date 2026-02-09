@@ -12,3 +12,11 @@ var DefaultServices = "db, redis, elasticsearch, kafka, msk, rabbitmq, grpc"
 
 // DefaultGRPCServices is the canonical fallback list of gRPC microservice names.
 var DefaultGRPCServices = "candidate, job, client, organisation, user, email, billing, core"
+
+// DefaultPresetConfigs is the canonical fallback map of scaling preset configurations.
+// Used when the database is unavailable.
+var DefaultPresetConfigs = map[string]struct{ Min, Max int }{
+	"normal":      {Min: 2, Max: 10},
+	"performance": {Min: 10, Max: 50},
+	"minimal":     {Min: 1, Max: 3},
+}

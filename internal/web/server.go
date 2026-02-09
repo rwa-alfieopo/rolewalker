@@ -496,7 +496,8 @@ func (rw *responseWriter) WriteHeader(code int) {
 }
 
 func (s *Server) handleGetAccounts(w http.ResponseWriter, r *http.Request) {
-	accounts, err := s.dbRepo.GetAllAWSAccounts()
+	repo := s.dbRepo.WithContext(r.Context())
+	accounts, err := repo.GetAllAWSAccounts()
 	if err != nil {
 		s.logger.Error("Database error", "operation", "GetAllAWSAccounts", "error", err)
 		s.writeError(w, http.StatusInternalServerError, "Internal server error")
@@ -538,7 +539,7 @@ func (s *Server) handleAddAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.dbRepo.AddAWSAccount(req.AccountID, req.AccountName, req.SSOStartURL, req.SSORegion, req.Description); err != nil {
+	if err := s.dbRepo.WithContext(r.Context()).AddAWSAccount(req.AccountID, req.AccountName, req.SSOStartURL, req.SSORegion, req.Description); err != nil {
 		s.logger.Error("Database error", "operation", "AddAWSAccount", "account_id", req.AccountID, "error", err)
 		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
@@ -559,8 +560,10 @@ func (s *Server) handleGetRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	repo := s.dbRepo.WithContext(r.Context())
+
 	// Get the account to find its AWS account ID
-	accounts, err := s.dbRepo.GetAllAWSAccounts()
+	accounts, err := repo.GetAllAWSAccounts()
 	if err != nil {
 		s.logger.Error("Database error", "operation", "GetAllAWSAccounts", "error", err)
 		s.writeError(w, http.StatusInternalServerError, "Internal server error")
@@ -580,7 +583,7 @@ func (s *Server) handleGetRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	roles, err := s.dbRepo.GetRolesByAccount(awsAccountID)
+	roles, err := repo.GetRolesByAccount(awsAccountID)
 	if err != nil {
 		s.logger.Error("Database error", "operation", "GetRolesByAccount", "account_id", awsAccountID, "error", err)
 		s.writeError(w, http.StatusInternalServerError, "Internal server error")
@@ -625,7 +628,7 @@ func (s *Server) handleAddRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.dbRepo.AddAWSRole(req.AccountID, req.RoleName, req.RoleARN, req.ProfileName, req.Region, req.Description); err != nil {
+	if err := s.dbRepo.WithContext(r.Context()).AddAWSRole(req.AccountID, req.RoleName, req.RoleARN, req.ProfileName, req.Region, req.Description); err != nil {
 		s.logger.Error("Database error", "operation", "AddAWSRole", "account_id", req.AccountID, "role_name", req.RoleName, "error", err)
 		s.writeError(w, http.StatusInternalServerError, "Internal server error")
 		return
@@ -639,7 +642,7 @@ func (s *Server) handleAddRole(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetActiveSession(w http.ResponseWriter, r *http.Request) {
-	session, role, account, err := s.dbRepo.GetActiveSession()
+	session, role, account, err := s.dbRepo.WithContext(r.Context()).GetActiveSession()
 	if err != nil {
 		s.logger.Error("Database error", "operation", "GetActiveSession", "error", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -860,6 +863,8 @@ func (s *Server) executeImportConfig(w http.ResponseWriter, r *http.Request) {
 	skipped := 0
 	errors := []string{}
 
+	repo := s.dbRepo.WithContext(r.Context())
+
 	for _, profile := range req.Profiles {
 		profileName := profile["name"]
 		if profileName == "" || profileName == "default" {
@@ -886,7 +891,7 @@ func (s *Server) executeImportConfig(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Get or create account
-		account, err := s.dbRepo.GetAWSAccount(accountID)
+		account, err := repo.GetAWSAccount(accountID)
 		if err != nil || account == nil {
 			// Account doesn't exist, create it
 			// Extract environment name from profile (e.g., "prod-admin" -> "prod")
@@ -898,14 +903,14 @@ func (s *Server) executeImportConfig(w http.ResponseWriter, r *http.Request) {
 				ssoRegion = "eu-west-2"
 			}
 			
-			if err := s.dbRepo.AddAWSAccount(accountID, envName, ssoStartURL, ssoRegion, "Imported from AWS config"); err != nil {
+			if err := repo.AddAWSAccount(accountID, envName, ssoStartURL, ssoRegion, "Imported from AWS config"); err != nil {
 				s.logger.Error("Failed to create account during import", "profile_name", profileName, "account_id", accountID, "error", err)
 				errors = append(errors, fmt.Sprintf("Profile %s: failed to create account", profileName))
 				continue
 			}
 			
 			// Fetch the newly created account
-			account, err = s.dbRepo.GetAWSAccount(accountID)
+			account, err = repo.GetAWSAccount(accountID)
 			if err != nil || account == nil {
 				s.logger.Error("Created account not retrievable", "profile_name", profileName, "account_id", accountID)
 				errors = append(errors, fmt.Sprintf("Profile %s: account created but could not be retrieved", profileName))
@@ -936,14 +941,14 @@ func (s *Server) executeImportConfig(w http.ResponseWriter, r *http.Request) {
 		roleARN := profile["role_arn"]
 
 		// Check if role already exists
-		existingRole, _ := s.dbRepo.GetRoleByProfileName(profileName)
+		existingRole, _ := repo.GetRoleByProfileName(profileName)
 		if existingRole != nil {
 			skipped++
 			continue
 		}
 
 		// Create role
-		if err := s.dbRepo.AddAWSRole(account.ID, roleName, roleARN, profileName, region, "Imported from AWS config"); err != nil {
+		if err := repo.AddAWSRole(account.ID, roleName, roleARN, profileName, region, "Imported from AWS config"); err != nil {
 			// Check if it's a duplicate role name error
 			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 				skipped++

@@ -1,4 +1,4 @@
-spackage aws
+package aws
 
 import "testing"
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"rolewalkers/internal/db"
 	"strings"
@@ -102,17 +101,12 @@ func (sm *ScalingManager) Scale(env, presetName string) error {
 			return fmt.Errorf("invalid preset: %s (valid: %s)", presetName, strings.Join(sm.ValidPresets(), ", "))
 		}
 	} else {
-		// Fallback to hardcoded presets
-		presets := map[string]ScalingPresetConfig{
-			"normal":      {Min: 2, Max: 10},
-			"performance": {Min: 10, Max: 50},
-			"minimal":     {Min: 1, Max: 3},
-		}
-		var ok bool
-		preset, ok = presets[presetName]
+		// Fallback to canonical default presets
+		defaults, ok := DefaultPresetConfigs[presetName]
 		if !ok {
 			return fmt.Errorf("invalid preset: %s (valid: %s)", presetName, strings.Join(sm.ValidPresets(), ", "))
 		}
+		preset = ScalingPresetConfig{Min: defaults.Min, Max: defaults.Max}
 	}
 
 	if !sm.isValidEnv(env) {

@@ -32,6 +32,7 @@ type CLI struct {
 	scalingManager      *aws.ScalingManager
 	replicationManager  *aws.ReplicationManager
 	dbRepo              *db.ConfigRepository
+	database            *db.DB
 	configSync          *aws.ConfigSync
 }
 
@@ -54,7 +55,8 @@ func NewCLI() (*CLI, error) {
 
 	// Initialize database repository (single shared instance)
 	var dbRepo *db.ConfigRepository
-	database, err := db.NewDB()
+	var database *db.DB
+	database, err = db.NewDB()
 	if err == nil {
 		dbRepo = db.NewConfigRepository(database)
 	}
@@ -63,7 +65,7 @@ func NewCLI() (*CLI, error) {
 	km := aws.NewKubeManagerWithRepo(dbRepo)
 	ssm := aws.NewSSMManagerWithRepo(dbRepo)
 
-	tm, err := aws.NewTunnelManager()
+	tm, err := aws.NewTunnelManagerWithDeps(km, ssm, ps, dbRepo)
 	if err != nil {
 		return nil, err
 	}
@@ -102,6 +104,7 @@ func NewCLI() (*CLI, error) {
 		scalingManager:     scaleMgr,
 		replicationManager: replMgr,
 		dbRepo:             dbRepo,
+		database:           database,
 		configSync:         configSync,
 	}
 
@@ -121,6 +124,13 @@ func NewCLI() (*CLI, error) {
 	}
 
 	return cli, nil
+}
+
+// Close releases resources held by the CLI (e.g. database connections).
+func (c *CLI) Close() {
+	if c.database != nil {
+		c.database.Close()
+	}
 }
 
 // Run executes the CLI with given arguments
@@ -378,8 +388,8 @@ Utilities:
   help, -h                Show this help message
   example, ex             Show usage examples
 
-Tunnel Services: db, redis, elasticsearch, kafka, msk, rabbitmq, grpc
-gRPC Services:   candidate, job, client, organisation, user, email, billing, core
+Tunnel Services: ` + aws.DefaultServices + `
+gRPC Services:   ` + aws.DefaultGRPCServices + `
 `
 	fmt.Println(help)
 	return nil
@@ -2212,6 +2222,7 @@ func runCLI() error {
 	if err != nil {
 		return err
 	}
+	defer cli.Close()
 
 	return cli.Run(os.Args[1:])
 }

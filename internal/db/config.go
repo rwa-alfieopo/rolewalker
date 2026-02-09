@@ -64,7 +64,8 @@ type APIEndpoint struct {
 
 // ConfigRepository provides methods to access configuration data
 type ConfigRepository struct {
-	db *DB
+	db  *DB
+	ctx context.Context // optional request-scoped context
 }
 
 // NewConfigRepository creates a new config repository
@@ -72,9 +73,24 @@ func NewConfigRepository(db *DB) *ConfigRepository {
 	return &ConfigRepository{db: db}
 }
 
+// WithContext returns a shallow copy of the repository that uses the given
+// context as the parent for all database operations. This allows HTTP handlers
+// to propagate request cancellation to in-flight queries.
+func (r *ConfigRepository) WithContext(ctx context.Context) *ConfigRepository {
+	return &ConfigRepository{db: r.db, ctx: ctx}
+}
+
+// context returns the stored request context or context.Background() as fallback.
+func (r *ConfigRepository) context() context.Context {
+	if r.ctx != nil {
+		return r.ctx
+	}
+	return context.Background()
+}
+
 // GetEnvironment retrieves an environment by name
 func (r *ConfigRepository) GetEnvironment(name string) (*Environment, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	env := &Environment{}
@@ -96,7 +112,7 @@ func (r *ConfigRepository) GetEnvironment(name string) (*Environment, error) {
 
 // GetAllEnvironments retrieves all active environments
 func (r *ConfigRepository) GetAllEnvironments() ([]Environment, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	rows, err := r.db.QueryContext(ctx, `
@@ -124,7 +140,7 @@ func (r *ConfigRepository) GetAllEnvironments() ([]Environment, error) {
 
 // GetService retrieves a service by name
 func (r *ConfigRepository) GetService(name string) (*Service, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	svc := &Service{}
@@ -146,7 +162,7 @@ func (r *ConfigRepository) GetService(name string) (*Service, error) {
 
 // GetAllServices retrieves all active services
 func (r *ConfigRepository) GetAllServices() ([]Service, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	rows, err := r.db.QueryContext(ctx, `
@@ -174,7 +190,7 @@ func (r *ConfigRepository) GetAllServices() ([]Service, error) {
 
 // GetPortMapping retrieves a port mapping for a service and environment
 func (r *ConfigRepository) GetPortMapping(serviceName, envName string) (*PortMapping, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	pm := &PortMapping{}
@@ -198,7 +214,7 @@ func (r *ConfigRepository) GetPortMapping(serviceName, envName string) (*PortMap
 
 // GetPortMappingsByService retrieves all port mappings for a service
 func (r *ConfigRepository) GetPortMappingsByService(serviceName string) ([]PortMapping, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	rows, err := r.db.QueryContext(ctx, `
@@ -227,7 +243,7 @@ func (r *ConfigRepository) GetPortMappingsByService(serviceName string) ([]PortM
 
 // GetScalingPreset retrieves a scaling preset by name
 func (r *ConfigRepository) GetScalingPreset(name string) (*ScalingPreset, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	preset := &ScalingPreset{}
@@ -249,7 +265,7 @@ func (r *ConfigRepository) GetScalingPreset(name string) (*ScalingPreset, error)
 
 // GetAllScalingPresets retrieves all active scaling presets
 func (r *ConfigRepository) GetAllScalingPresets() ([]ScalingPreset, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	rows, err := r.db.QueryContext(ctx, `
@@ -277,7 +293,7 @@ func (r *ConfigRepository) GetAllScalingPresets() ([]ScalingPreset, error) {
 
 // GetAPIEndpoint retrieves an API endpoint by name
 func (r *ConfigRepository) GetAPIEndpoint(name string) (*APIEndpoint, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	endpoint := &APIEndpoint{}
@@ -299,7 +315,7 @@ func (r *ConfigRepository) GetAPIEndpoint(name string) (*APIEndpoint, error) {
 
 // GetGRPCMicroservices retrieves all gRPC microservices
 func (r *ConfigRepository) GetGRPCMicroservices() (map[string]int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	rows, err := r.db.QueryContext(ctx, `
@@ -364,7 +380,7 @@ type UserSession struct {
 
 // GetAWSAccount retrieves an AWS account by account ID
 func (r *ConfigRepository) GetAWSAccount(accountID string) (*AWSAccount, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	acc := &AWSAccount{}
@@ -386,7 +402,7 @@ func (r *ConfigRepository) GetAWSAccount(accountID string) (*AWSAccount, error) 
 
 // GetAllAWSAccounts retrieves all active AWS accounts
 func (r *ConfigRepository) GetAllAWSAccounts() ([]AWSAccount, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	rows, err := r.db.QueryContext(ctx, `
@@ -414,7 +430,7 @@ func (r *ConfigRepository) GetAllAWSAccounts() ([]AWSAccount, error) {
 
 // GetRolesByAccount retrieves all roles for an AWS account
 func (r *ConfigRepository) GetRolesByAccount(accountID string) ([]AWSRole, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	rows, err := r.db.QueryContext(ctx, `
@@ -443,7 +459,7 @@ func (r *ConfigRepository) GetRolesByAccount(accountID string) ([]AWSRole, error
 
 // GetRoleByProfileName retrieves a role by its profile name
 func (r *ConfigRepository) GetRoleByProfileName(profileName string) (*AWSRole, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	role := &AWSRole{}
@@ -465,14 +481,17 @@ func (r *ConfigRepository) GetRoleByProfileName(profileName string) (*AWSRole, e
 
 // CreateUserSession creates a new user session and deactivates previous ones
 func (r *ConfigRepository) CreateUserSession(roleID int) error {
-	tx, err := r.db.Begin()
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
+	defer cancel()
+
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
 	// Deactivate all previous sessions
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		UPDATE user_sessions 
 		SET is_active = 0, session_end = CURRENT_TIMESTAMP
 		WHERE is_active = 1
@@ -482,7 +501,7 @@ func (r *ConfigRepository) CreateUserSession(roleID int) error {
 	}
 
 	// Create new session
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO user_sessions (role_id, is_active)
 		VALUES (?, 1)
 	`, roleID)
@@ -495,7 +514,7 @@ func (r *ConfigRepository) CreateUserSession(roleID int) error {
 
 // GetActiveSession retrieves the currently active session
 func (r *ConfigRepository) GetActiveSession() (*UserSession, *AWSRole, *AWSAccount, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	session := &UserSession{}
@@ -531,10 +550,13 @@ func (r *ConfigRepository) GetActiveSession() (*UserSession, *AWSRole, *AWSAccou
 
 // AddAWSAccount adds a new AWS account
 func (r *ConfigRepository) AddAWSAccount(accountID, accountName, ssoStartURL, ssoRegion, description string) error {
-	_, err := r.db.Exec(`
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO aws_accounts (account_id, account_name, sso_start_url, sso_region, description)
 		VALUES (?, ?, ?, ?, ?)
-	`, accountID, accountName, 
+	`, accountID, accountName,
 		sql.NullString{String: ssoStartURL, Valid: ssoStartURL != ""},
 		sql.NullString{String: ssoRegion, Valid: ssoRegion != ""},
 		sql.NullString{String: description, Valid: description != ""})
@@ -543,7 +565,10 @@ func (r *ConfigRepository) AddAWSAccount(accountID, accountName, ssoStartURL, ss
 
 // AddAWSRole adds a new AWS role
 func (r *ConfigRepository) AddAWSRole(accountID int, roleName, roleARN, profileName, region, description string) error {
-	_, err := r.db.Exec(`
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO aws_roles (account_id, role_name, role_arn, profile_name, region, description)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`, accountID, roleName,
@@ -557,6 +582,9 @@ func (r *ConfigRepository) UpdateAWSRole(roleID int, updates map[string]interfac
 	if len(updates) == 0 {
 		return nil
 	}
+
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
+	defer cancel()
 
 	// Whitelist allowed column names to prevent SQL injection via map keys
 	allowedColumns := map[string]bool{
@@ -579,13 +607,13 @@ func (r *ConfigRepository) UpdateAWSRole(roleID int, updates map[string]interfac
 	args = append(args, roleID)
 
 	query := fmt.Sprintf("UPDATE aws_roles SET %s WHERE id = ?", strings.Join(setClauses, ", "))
-	_, err := r.db.Exec(query, args...)
+	_, err := r.db.ExecContext(ctx, query, args...)
 	return err
 }
 
 // GetAllAWSRoles retrieves all active AWS roles
 func (r *ConfigRepository) GetAllAWSRoles() ([]AWSRole, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
 	defer cancel()
 
 	rows, err := r.db.QueryContext(ctx, `

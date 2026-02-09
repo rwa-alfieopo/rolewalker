@@ -67,6 +67,24 @@ func NewTunnelManager() (*TunnelManager, error) {
 	}, nil
 }
 
+// NewTunnelManagerWithDeps creates a new tunnel manager with shared dependencies
+func NewTunnelManagerWithDeps(km *KubeManager, ssm *SSMManager, ps *ProfileSwitcher, repo *db.ConfigRepository) (*TunnelManager, error) {
+	state, err := NewTunnelState()
+	if err != nil {
+		return nil, err
+	}
+
+	return &TunnelManager{
+		kubeManager:     km,
+		ssmManager:      ssm,
+		portConfig:      NewPortConfig(),
+		state:           state,
+		profileSwitcher: ps,
+		configRepo:      repo,
+	}, nil
+}
+
+
 // Start creates and starts a tunnel
 func (tm *TunnelManager) Start(config TunnelConfig) error {
 	service := strings.ToLower(config.Service)
@@ -387,6 +405,7 @@ func (tm *TunnelManager) CleanupStale() error {
 func GetSupportedServices() string {
 	database, err := db.NewDB()
 	if err == nil {
+		defer database.Close()
 		repo := db.NewConfigRepository(database)
 		services, err := repo.GetAllServices()
 		if err == nil {
@@ -399,5 +418,5 @@ func GetSupportedServices() string {
 			return strings.Join(names, ", ")
 		}
 	}
-	return "db, redis, elasticsearch, kafka, msk, rabbitmq, grpc"
+	return DefaultServices
 }

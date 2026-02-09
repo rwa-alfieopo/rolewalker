@@ -145,43 +145,17 @@ func (c *CLI) status() error {
 }
 
 func (c *CLI) current() error {
+	namespace := c.kubeManager.GetCurrentNamespace()
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	if err := c.showKubeContext(namespace); err != nil {
+		return err
+	}
+
 	active := c.configManager.GetActiveProfile()
 	region := c.profileSwitcher.GetDefaultRegion()
-
-	fmt.Println("Current Context:")
-	fmt.Println(strings.Repeat("-", 60))
-
-	fmt.Printf("AWS Profile:     %s\n", active)
-	if region != "" {
-		fmt.Printf("AWS Region:      %s\n", region)
-	}
-
-	profiles, err := c.configManager.GetProfiles()
-	if err == nil {
-		for _, p := range profiles {
-			if p.Name == active && p.IsSSO {
-				fmt.Printf("Account ID:      %s\n", p.SSOAccountID)
-				accountName := c.extractAccountName(p.Name)
-				if accountName != "" {
-					fmt.Printf("Account Name:    %s\n", accountName)
-				}
-				break
-			}
-		}
-	}
-
-	kubeContext, err := c.kubeManager.GetCurrentContext()
-	if err == nil && kubeContext != "" {
-		fmt.Printf("Kube Cluster:    %s\n", kubeContext)
-		namespace := c.kubeManager.GetCurrentNamespace()
-		if namespace == "" {
-			namespace = "default"
-		}
-		fmt.Printf("Kube Namespace:  %s\n", namespace)
-	} else {
-		fmt.Printf("Kube Cluster:    (not configured)\n")
-		fmt.Printf("Kube Namespace:  (not configured)\n")
-	}
 
 	if envProfile := os.Getenv("AWS_PROFILE"); envProfile != "" && envProfile != active {
 		fmt.Printf("\n⚠ AWS_PROFILE env override: %s\n", envProfile)

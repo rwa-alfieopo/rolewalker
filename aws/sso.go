@@ -36,13 +36,8 @@ type SSOManager struct {
 	cacheDir      string
 }
 
-// NewSSOManager creates a new SSO manager
-func NewSSOManager() (*SSOManager, error) {
-	cm, err := NewConfigManager()
-	if err != nil {
-		return nil, err
-	}
-
+// NewSSOManager creates a new SSO manager with a shared ConfigManager.
+func NewSSOManager(cm *ConfigManager) (*SSOManager, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err

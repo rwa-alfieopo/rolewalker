@@ -140,20 +140,14 @@ func TestIsValidProfileName(t *testing.T) {
 
 func TestValidateAddAccountRequest(t *testing.T) {
 	// Valid request
-	req := struct {
-		AccountID   string `json:"account_id"`
-		AccountName string `json:"account_name"`
-		SSOStartURL string `json:"sso_start_url"`
-		SSORegion   string `json:"sso_region"`
-		Description string `json:"description"`
-	}{
+	req := AddAccountRequest{
 		AccountID:   "123456789012",
 		AccountName: "Production",
 		SSOStartURL: "https://example.awsapps.com/start",
 		SSORegion:   "eu-west-2",
 	}
 
-	errors := validateAddAccountRequest(req)
+	errors := req.Validate()
 	if len(errors) != 0 {
 		t.Errorf("Expected no errors for valid request, got %d: %v", len(errors), errors)
 	}
@@ -161,7 +155,7 @@ func TestValidateAddAccountRequest(t *testing.T) {
 	// Invalid request
 	req.AccountID = "invalid"
 	req.AccountName = ""
-	errors = validateAddAccountRequest(req)
+	errors = req.Validate()
 	if len(errors) < 2 {
 		t.Errorf("Expected at least 2 errors for invalid request, got %d", len(errors))
 	}

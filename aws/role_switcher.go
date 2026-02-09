@@ -15,17 +15,12 @@ type RoleSwitcher struct {
 	dbRepo        *db.ConfigRepository
 }
 
-// NewRoleSwitcher creates a new role switcher
-func NewRoleSwitcher(dbRepo *db.ConfigRepository) (*RoleSwitcher, error) {
-	cm, err := NewConfigManager()
-	if err != nil {
-		return nil, err
-	}
-
+// NewRoleSwitcher creates a new role switcher with a shared ConfigManager.
+func NewRoleSwitcher(cm *ConfigManager, dbRepo *db.ConfigRepository) *RoleSwitcher {
 	return &RoleSwitcher{
 		configManager: cm,
 		dbRepo:        dbRepo,
-	}, nil
+	}
 }
 
 // SwitchRole switches to a specific role by profile name

@@ -1,7 +1,12 @@
 const API_BASE = '/api';
 
-// Extract auth token from URL query parameter (passed by server when opening browser)
-const AUTH_TOKEN = new URLSearchParams(window.location.search).get('token') || '';
+// Extract auth token from URL query parameter, falling back to sessionStorage
+// so the token survives page refreshes without being visible in the URL bar.
+const _urlToken = new URLSearchParams(window.location.search).get('token') || '';
+if (_urlToken) {
+    sessionStorage.setItem('rw_auth_token', _urlToken);
+}
+const AUTH_TOKEN = _urlToken || sessionStorage.getItem('rw_auth_token') || '';
 
 // Helper: build fetch options with auth header
 function authHeaders(extra = {}) {
@@ -14,7 +19,7 @@ function authHeaders(extra = {}) {
 }
 
 // Clean the token from the URL bar so it's not visible / bookmarked
-if (AUTH_TOKEN && window.history.replaceState) {
+if (_urlToken && window.history.replaceState) {
     const cleanURL = window.location.pathname;
     window.history.replaceState({}, document.title, cleanURL);
 }

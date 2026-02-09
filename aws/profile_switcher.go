@@ -15,16 +15,11 @@ type ProfileSwitcher struct {
 	configManager *ConfigManager
 }
 
-// NewProfileSwitcher creates a new profile switcher
-func NewProfileSwitcher() (*ProfileSwitcher, error) {
-	cm, err := NewConfigManager()
-	if err != nil {
-		return nil, err
-	}
-
+// NewProfileSwitcher creates a new profile switcher with a shared ConfigManager.
+func NewProfileSwitcher(cm *ConfigManager) *ProfileSwitcher {
 	return &ProfileSwitcher{
 		configManager: cm,
-	}, nil
+	}
 }
 
 // SwitchProfile sets the active profile by updating default profile

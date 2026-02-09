@@ -38,35 +38,6 @@ type TunnelConfig struct {
 	DBType      string // for db: query/command
 }
 
-// NewTunnelManager creates a new tunnel manager
-func NewTunnelManager() (*TunnelManager, error) {
-	state, err := NewTunnelState()
-	if err != nil {
-		return nil, err
-	}
-
-	ps, psErr := NewProfileSwitcher()
-	if psErr != nil {
-		fmt.Fprintf(os.Stderr, "⚠ Profile switcher init failed: %v\n", psErr)
-	}
-	database, dbErr := db.NewDB()
-	var repo *db.ConfigRepository
-	if dbErr == nil {
-		repo = db.NewConfigRepository(database)
-	} else {
-		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", dbErr)
-	}
-
-	return &TunnelManager{
-		kubeManager:     NewKubeManager(),
-		ssmManager:      NewSSMManager(),
-		portConfig:      NewPortConfig(),
-		state:           state,
-		profileSwitcher: ps,
-		configRepo:      repo,
-	}, nil
-}
-
 // NewTunnelManagerWithDeps creates a new tunnel manager with shared dependencies
 func NewTunnelManagerWithDeps(km *KubeManager, ssm *SSMManager, ps *ProfileSwitcher, repo *db.ConfigRepository) (*TunnelManager, error) {
 	state, err := NewTunnelState()
@@ -402,12 +373,9 @@ func (tm *TunnelManager) CleanupStale() error {
 }
 
 // GetSupportedServices returns list of supported tunnel services
-func GetSupportedServices() string {
-	database, err := db.NewDB()
-	if err == nil {
-		defer database.Close()
-		repo := db.NewConfigRepository(database)
-		services, err := repo.GetAllServices()
+func (tm *TunnelManager) GetSupportedServices() string {
+	if tm.configRepo != nil {
+		services, err := tm.configRepo.GetAllServices()
 		if err == nil {
 			names := make([]string, 0)
 			for _, s := range services {

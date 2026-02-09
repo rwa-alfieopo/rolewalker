@@ -7,7 +7,7 @@ import (
 
 func (c *CLI) tunnel(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rw tunnel <start|stop|list> [service] [env]\n\nSubcommands:\n  start <service> <env>  Start a tunnel\n  stop <service> <env>   Stop a specific tunnel\n  stop --all             Stop all tunnels\n  list                   List active tunnels\n  cleanup                Remove stale tunnel entries\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage", aws.GetSupportedServices())
+		return fmt.Errorf("usage: rw tunnel <start|stop|list> [service] [env]\n\nSubcommands:\n  start <service> <env>  Start a tunnel\n  stop <service> <env>   Stop a specific tunnel\n  stop --all             Stop all tunnels\n  list                   List active tunnels\n  cleanup                Remove stale tunnel entries\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage", c.tunnelManager.GetSupportedServices())
 	}
 
 	subCmd := args[0]
@@ -30,7 +30,7 @@ func (c *CLI) tunnel(args []string) error {
 
 func (c *CLI) tunnelStart(args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("usage: rw tunnel start <service> <env>\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage", aws.GetSupportedServices())
+		return fmt.Errorf("usage: rw tunnel start <service> <env>\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage", c.tunnelManager.GetSupportedServices())
 	}
 
 	service := args[0]

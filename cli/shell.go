@@ -93,16 +93,61 @@ func (c *CLI) initShell(args []string) error {
 
 	fmt.Printf("Detected shell: %s\n", shell)
 
-	switch shell {
-	case "powershell", "pwsh":
-		return c.initPowerShell(homeDir)
-	case "bash":
-		return c.initBash(homeDir)
-	case "zsh":
-		return c.initZsh(homeDir)
-	default:
+	configs := map[string]shellConfig{
+		"powershell": {profilePath: c.powershellProfilePath(homeDir), marker: "# rolewalkers", reloadCmd: ". $PROFILE", funcCode: powershellFuncCode},
+		"pwsh":       {profilePath: c.powershellProfilePath(homeDir), marker: "# rolewalkers", reloadCmd: ". $PROFILE", funcCode: powershellFuncCode},
+		"bash":       {profilePath: filepath.Join(homeDir, ".bashrc"), marker: "# rolewalkers", reloadCmd: "source ~/.bashrc", funcCode: bashFuncCode},
+		"zsh":        {profilePath: filepath.Join(homeDir, ".zshrc"), marker: "# rolewalkers", reloadCmd: "source ~/.zshrc", funcCode: zshFuncCode},
+	}
+
+	cfg, ok := configs[shell]
+	if !ok {
 		return fmt.Errorf("unsupported shell: %s\nSupported: powershell, bash, zsh", shell)
 	}
+
+	return c.installShellIntegration(cfg)
+}
+
+type shellConfig struct {
+	profilePath string
+	marker      string
+	reloadCmd   string
+	funcCode    string
+}
+
+func (c *CLI) installShellIntegration(cfg shellConfig) (err error) {
+	content, _ := os.ReadFile(cfg.profilePath)
+	if strings.Contains(string(content), cfg.marker) {
+		fmt.Println("✓ Shell integration already installed")
+		fmt.Printf("  Restart your terminal or run: %s\n", cfg.reloadCmd)
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(cfg.profilePath), 0755); err != nil {
+		return fmt.Errorf("failed to create profile directory: %w", err)
+	}
+
+	f, err := os.OpenFile(cfg.profilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open profile: %w", err)
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close file: %w", cerr)
+		}
+	}()
+
+	if _, err := f.WriteString(cfg.funcCode); err != nil {
+		return fmt.Errorf("failed to write to profile: %w", err)
+	}
+
+	fmt.Printf("✓ Installed shell integration to: %s\n", cfg.profilePath)
+	fmt.Println("\nTo activate now, run:")
+	fmt.Printf("  %s\n", cfg.reloadCmd)
+	fmt.Println("\nThen use:")
+	fmt.Println("  rw <profile-name>")
+
+	return nil
 }
 
 func (c *CLI) detectShell() string {
@@ -110,34 +155,20 @@ func (c *CLI) detectShell() string {
 	return pm.DetectShell()
 }
 
-func (c *CLI) initPowerShell(homeDir string) (err error) {
-	profilePaths := []string{
+func (c *CLI) powershellProfilePath(homeDir string) string {
+	paths := []string{
 		filepath.Join(homeDir, "Documents", "PowerShell", "Microsoft.PowerShell_profile.ps1"),
 		filepath.Join(homeDir, "Documents", "WindowsPowerShell", "Microsoft.PowerShell_profile.ps1"),
 	}
-
-	var profilePath string
-	for _, p := range profilePaths {
+	for _, p := range paths {
 		if _, err := os.Stat(p); err == nil {
-			profilePath = p
-			break
+			return p
 		}
 	}
-	if profilePath == "" {
-		profilePath = profilePaths[0]
-		if err := os.MkdirAll(filepath.Dir(profilePath), 0755); err != nil {
-			return fmt.Errorf("failed to create profile directory: %w", err)
-		}
-	}
+	return paths[0]
+}
 
-	content, _ := os.ReadFile(profilePath)
-	if strings.Contains(string(content), "# rolewalkers") {
-		fmt.Println("✓ Shell integration already installed")
-		fmt.Println("  Restart your terminal or run: . $PROFILE")
-		return nil
-	}
-
-	funcCode := `
+const powershellFuncCode = `
 
 # rolewalkers - AWS Profile Switcher
 function rw {
@@ -164,40 +195,7 @@ Register-ArgumentCompleter -CommandName rw -ParameterName profile -ScriptBlock {
 }
 `
 
-	f, err := os.OpenFile(profilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open profile: %w", err)
-	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("failed to close file: %w", cerr)
-		}
-	}()
-
-	if _, err := f.WriteString(funcCode); err != nil {
-		return fmt.Errorf("failed to write to profile: %w", err)
-	}
-
-	fmt.Printf("✓ Installed shell integration to: %s\n", profilePath)
-	fmt.Println("\nTo activate now, run:")
-	fmt.Println("  . $PROFILE")
-	fmt.Println("\nThen use:")
-	fmt.Println("  rw <profile-name>")
-
-	return nil
-}
-
-func (c *CLI) initBash(homeDir string) (err error) {
-	profilePath := filepath.Join(homeDir, ".bashrc")
-
-	content, _ := os.ReadFile(profilePath)
-	if strings.Contains(string(content), "# rolewalkers") {
-		fmt.Println("✓ Shell integration already installed")
-		fmt.Println("  Restart your terminal or run: source ~/.bashrc")
-		return nil
-	}
-
-	funcCode := `
+const bashFuncCode = `
 
 # rolewalkers - AWS Profile Switcher
 rw() {
@@ -219,40 +217,7 @@ _rw_completions() {
 complete -F _rw_completions rw
 `
 
-	f, err := os.OpenFile(profilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open profile: %w", err)
-	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("failed to close file: %w", cerr)
-		}
-	}()
-
-	if _, err := f.WriteString(funcCode); err != nil {
-		return fmt.Errorf("failed to write to profile: %w", err)
-	}
-
-	fmt.Printf("✓ Installed shell integration to: %s\n", profilePath)
-	fmt.Println("\nTo activate now, run:")
-	fmt.Println("  source ~/.bashrc")
-	fmt.Println("\nThen use:")
-	fmt.Println("  rw <profile-name>")
-
-	return nil
-}
-
-func (c *CLI) initZsh(homeDir string) (err error) {
-	profilePath := filepath.Join(homeDir, ".zshrc")
-
-	content, _ := os.ReadFile(profilePath)
-	if strings.Contains(string(content), "# rolewalkers") {
-		fmt.Println("✓ Shell integration already installed")
-		fmt.Println("  Restart your terminal or run: source ~/.zshrc")
-		return nil
-	}
-
-	funcCode := `
+const zshFuncCode = `
 
 # rolewalkers - AWS Profile Switcher
 rw() {
@@ -273,26 +238,3 @@ _rw() {
 }
 compdef _rw rw
 `
-
-	f, err := os.OpenFile(profilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open profile: %w", err)
-	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("failed to close file: %w", cerr)
-		}
-	}()
-
-	if _, err := f.WriteString(funcCode); err != nil {
-		return fmt.Errorf("failed to write to profile: %w", err)
-	}
-
-	fmt.Printf("✓ Installed shell integration to: %s\n", profilePath)
-	fmt.Println("\nTo activate now, run:")
-	fmt.Println("  source ~/.zshrc")
-	fmt.Println("\nThen use:")
-	fmt.Println("  rw <profile-name>")
-
-	return nil
-}

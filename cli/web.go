@@ -20,10 +20,12 @@ func (c *CLI) web(args []string) error {
 		}
 	}
 
-	roleSwitcher, err := aws.NewRoleSwitcher(c.dbRepo)
+	cm, err := aws.NewConfigManager()
 	if err != nil {
-		return fmt.Errorf("failed to create role switcher: %w", err)
+		return fmt.Errorf("failed to create config manager: %w", err)
 	}
+
+	roleSwitcher := aws.NewRoleSwitcher(cm, c.dbRepo)
 
 	server := web.NewServer(port, c.dbRepo, roleSwitcher)
 	return server.Start()

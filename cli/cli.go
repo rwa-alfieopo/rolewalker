@@ -10,22 +10,22 @@ import (
 
 // CLI handles command-line operations
 type CLI struct {
-	configManager      *aws.ConfigManager
+	configManager      aws.ProfileProvider
 	ssoManager         *aws.SSOManager
 	profileSwitcher    *aws.ProfileSwitcher
 	kubeManager        *aws.KubeManager
-	tunnelManager      *aws.TunnelManager
-	ssmManager         *aws.SSMManager
-	grpcManager        *aws.GRPCManager
-	dbManager          *aws.DatabaseManager
-	redisManager       *aws.RedisManager
-	mskManager         *aws.MSKManager
-	maintenanceManager *aws.MaintenanceManager
-	scalingManager     *aws.ScalingManager
-	replicationManager *aws.ReplicationManager
+	tunnelManager      aws.TunnelManagerI
+	ssmManager         aws.EndpointResolver
+	grpcManager        aws.GRPCManagerI
+	dbManager          aws.DatabaseManagerI
+	redisManager       aws.RedisManagerI
+	mskManager         aws.MSKManagerI
+	maintenanceManager aws.MaintenanceManagerI
+	scalingManager     aws.ScalingManagerI
+	replicationManager aws.ReplicationManagerI
 	dbRepo             *db.ConfigRepository
 	database           *db.DB
-	configSync         *aws.ConfigSync
+	configSync         aws.ConfigSyncI
 }
 
 // NewCLI creates a new CLI instance
@@ -35,15 +35,12 @@ func NewCLI() (*CLI, error) {
 		return nil, err
 	}
 
-	sm, err := aws.NewSSOManager()
+	sm, err := aws.NewSSOManager(cm)
 	if err != nil {
 		return nil, err
 	}
 
-	ps, err := aws.NewProfileSwitcher()
-	if err != nil {
-		return nil, err
-	}
+	ps := aws.NewProfileSwitcher(cm)
 
 	// Initialize database repository (single shared instance)
 	var dbRepo *db.ConfigRepository
@@ -71,7 +68,7 @@ func NewCLI() (*CLI, error) {
 	replMgr := aws.NewReplicationManagerWithRepo(dbRepo)
 
 	// Initialize config sync
-	var configSync *aws.ConfigSync
+	var configSync aws.ConfigSyncI
 	if dbRepo != nil {
 		cs, csErr := aws.NewConfigSync(dbRepo)
 		if csErr != nil {

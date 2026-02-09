@@ -5,10 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"rolewalkers/internal/awscli"
 	"rolewalkers/internal/db"
-	"rolewalkers/internal/utils"
 	"strings"
 	"time"
 )
@@ -46,13 +44,14 @@ type BlueGreenDeploymentsResponse struct {
 
 // NewReplicationManager creates a new ReplicationManager instance
 func NewReplicationManager() *ReplicationManager {
-	database, err := db.NewDB()
-	var repo *db.ConfigRepository
-	if err == nil {
-		repo = db.NewConfigRepository(database)
-	} else {
-		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", err)
+	return &ReplicationManager{
+		region:     "eu-west-2",
+		configRepo: nil,
 	}
+}
+
+// NewReplicationManagerWithRepo creates a new ReplicationManager with a shared config repository
+func NewReplicationManagerWithRepo(repo *db.ConfigRepository) *ReplicationManager {
 	return &ReplicationManager{
 		region:     "eu-west-2",
 		configRepo: repo,
@@ -71,7 +70,7 @@ func (rm *ReplicationManager) ValidEnvironments() []string {
 			return names
 		}
 	}
-	return []string{"snd", "dev", "sit", "preprod", "trg", "prod", "qa", "stage"}
+	return DefaultEnvironments
 }
 
 // Status retrieves the status of Blue-Green deployments for an environment
@@ -413,19 +412,4 @@ func (rm *ReplicationManager) isValidEnv(env string) bool {
 		}
 	}
 	return false
-}
-
-// ConfirmReplicationSwitch prompts the user for confirmation before switchover
-func ConfirmReplicationSwitch(deploymentName, source, target string) bool {
-	return utils.ConfirmReplicationSwitch(deploymentName, source, target)
-}
-
-// ConfirmReplicationCreate prompts the user for confirmation before creating deployment
-func ConfirmReplicationCreate(name, source string) bool {
-	return utils.ConfirmReplicationCreate(name, source)
-}
-
-// ConfirmReplicationDelete prompts the user for confirmation before deleting deployment
-func ConfirmReplicationDelete(deploymentName string, deleteTarget bool) bool {
-	return utils.ConfirmReplicationDelete(deploymentName, deleteTarget)
 }

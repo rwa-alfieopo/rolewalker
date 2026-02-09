@@ -844,6 +844,7 @@ func (s *Server) executeImportConfig(w http.ResponseWriter, r *http.Request) {
 		Profiles []map[string]string `json:"profiles"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return

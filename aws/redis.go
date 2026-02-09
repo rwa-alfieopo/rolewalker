@@ -21,13 +21,18 @@ type RedisManager struct {
 
 // NewRedisManager creates a new RedisManager instance
 func NewRedisManager() *RedisManager {
-	ps, err := NewProfileSwitcher()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ Profile switcher init failed: %v\n", err)
-	}
 	return &RedisManager{
 		kubeManager:     NewKubeManager(),
 		ssmManager:      NewSSMManager(),
+		profileSwitcher: nil,
+	}
+}
+
+// NewRedisManagerWithDeps creates a new RedisManager with shared dependencies
+func NewRedisManagerWithDeps(km *KubeManager, ssm *SSMManager, ps *ProfileSwitcher) *RedisManager {
+	return &RedisManager{
+		kubeManager:     km,
+		ssmManager:      ssm,
 		profileSwitcher: ps,
 	}
 }

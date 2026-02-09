@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"rolewalkers/internal/awscli"
 	"rolewalkers/internal/db"
 	"strings"
@@ -18,17 +17,12 @@ type SSMManager struct {
 
 // NewSSMManager creates a new SSM manager
 func NewSSMManager() *SSMManager {
-	database, err := db.NewDB()
-	var repo *db.ConfigRepository
-	if err == nil {
-		repo = db.NewConfigRepository(database)
-	} else {
-		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", err)
-	}
-	return &SSMManager{
-		region:     "eu-west-2",
-		configRepo: repo,
-	}
+	return &SSMManager{region: "eu-west-2", configRepo: nil}
+}
+
+// NewSSMManagerWithRepo creates a new SSM manager with a shared config repository
+func NewSSMManagerWithRepo(repo *db.ConfigRepository) *SSMManager {
+	return &SSMManager{region: "eu-west-2", configRepo: repo}
 }
 
 // ssmResponse represents the AWS SSM get-parameter response

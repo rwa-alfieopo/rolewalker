@@ -22,19 +22,17 @@ type GRPCManager struct {
 
 // NewGRPCManager creates a new GRPCManager instance
 func NewGRPCManager() *GRPCManager {
-	ps, err := NewProfileSwitcher()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ Profile switcher init failed: %v\n", err)
-	}
-	database, dbErr := db.NewDB()
-	var repo *db.ConfigRepository
-	if dbErr == nil {
-		repo = db.NewConfigRepository(database)
-	} else {
-		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", dbErr)
-	}
 	return &GRPCManager{
 		kubeManager:     NewKubeManager(),
+		profileSwitcher: nil,
+		configRepo:      nil,
+	}
+}
+
+// NewGRPCManagerWithDeps creates a new GRPCManager with shared dependencies
+func NewGRPCManagerWithDeps(km *KubeManager, ps *ProfileSwitcher, repo *db.ConfigRepository) *GRPCManager {
+	return &GRPCManager{
+		kubeManager:     km,
 		profileSwitcher: ps,
 		configRepo:      repo,
 	}
@@ -69,7 +67,7 @@ func (gm *GRPCManager) GetServices() string {
 			return strings.Join(services, ", ")
 		}
 	}
-	return "candidate, job, client, organisation, user, email, billing, core"
+	return DefaultGRPCServices
 }
 
 // GetServiceName returns the Kubernetes service name for a gRPC microservice

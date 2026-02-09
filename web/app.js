@@ -1,5 +1,24 @@
 const API_BASE = '/api';
 
+// Extract auth token from URL query parameter (passed by server when opening browser)
+const AUTH_TOKEN = new URLSearchParams(window.location.search).get('token') || '';
+
+// Helper: build fetch options with auth header
+function authHeaders(extra = {}) {
+    const merged = { ...extra };
+    merged.headers = {
+        ...(extra.headers || {}),
+        'Authorization': `Bearer ${AUTH_TOKEN}`,
+    };
+    return merged;
+}
+
+// Clean the token from the URL bar so it's not visible / bookmarked
+if (AUTH_TOKEN && window.history.replaceState) {
+    const cleanURL = window.location.pathname;
+    window.history.replaceState({}, document.title, cleanURL);
+}
+
 function showAddForm(type) {
     document.getElementById('addFormContainer').style.display = 'block';
     document.getElementById('accountForm').style.display = type === 'account' ? 'block' : 'none';
@@ -23,11 +42,11 @@ async function handleAddAccount(event) {
     };
 
     try {
-        const response = await fetch(`${API_BASE}/accounts`, {
+        const response = await fetch(`${API_BASE}/accounts`, authHeaders({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
-        });
+        }));
 
         if (response.ok) {
             showMessage('Account added successfully', 'success', 'quickAddMessage');
@@ -54,11 +73,11 @@ async function handleAddRole(event) {
     };
 
     try {
-        const response = await fetch(`${API_BASE}/roles`, {
+        const response = await fetch(`${API_BASE}/roles`, authHeaders({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
-        });
+        }));
 
         if (response.ok) {
             showMessage('Role added successfully', 'success', 'quickAddMessage');
@@ -75,7 +94,7 @@ async function handleAddRole(event) {
 
 async function loadAccounts() {
     try {
-        const response = await fetch(`${API_BASE}/accounts`);
+        const response = await fetch(`${API_BASE}/accounts`, authHeaders());
         const accounts = await response.json();
         renderAccounts(accounts);
         updateRoleAccountSelect(accounts);
@@ -86,7 +105,7 @@ async function loadAccounts() {
 
 async function loadActiveSession() {
     try {
-        const response = await fetch(`${API_BASE}/session/active`);
+        const response = await fetch(`${API_BASE}/session/active`, authHeaders());
         const session = await response.json();
         renderSession(session);
     } catch (error) {
@@ -143,7 +162,7 @@ async function toggleAccount(element, accountId) {
 
 async function loadRoles(accountId) {
     try {
-        const response = await fetch(`${API_BASE}/accounts/${accountId}/roles`);
+        const response = await fetch(`${API_BASE}/accounts/${accountId}/roles`, authHeaders());
         const roles = await response.json();
         renderRoles(accountId, roles);
     } catch (error) {
@@ -179,7 +198,7 @@ function renderRoles(accountId, roles) {
 
 async function checkLoginStatus(profileName) {
     try {
-        const response = await fetch(`${API_BASE}/session/login-status/${profileName}`);
+        const response = await fetch(`${API_BASE}/session/login-status/${profileName}`, authHeaders());
         const data = await response.json();
         
         const button = document.getElementById(`login-${profileName}`);
@@ -234,11 +253,11 @@ async function loginRole(profileName, event) {
     
     try {
         showMessage('Starting SSO login...', 'success');
-        const response = await fetch(`${API_BASE}/session/login`, {
+        const response = await fetch(`${API_BASE}/session/login`, authHeaders({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ profile_name: profileName })
-        });
+        }));
 
         console.log('Login response status:', response.status);
 
@@ -262,11 +281,11 @@ async function confirmSwitch() {
     const profileName = window.pendingProfileSwitch;
     
     try {
-        const response = await fetch(`${API_BASE}/session/switch`, {
+        const response = await fetch(`${API_BASE}/session/switch`, authHeaders({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ profile_name: profileName })
-        });
+        }));
 
         if (response.ok) {
             showMessage('Session switched successfully', 'success');
@@ -296,7 +315,7 @@ function updateRoleAccountSelect(accounts) {
 
 async function importConfig() {
     try {
-        const response = await fetch(`${API_BASE}/config/import`);
+        const response = await fetch(`${API_BASE}/config/import`, authHeaders());
         const data = await response.json();
         
         window.importProfiles = data.profiles;
@@ -316,11 +335,11 @@ function closeImportModal() {
 
 async function saveImportedProfiles(profiles) {
     try {
-        const response = await fetch(`${API_BASE}/config/import`, {
+        const response = await fetch(`${API_BASE}/config/import`, authHeaders({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ profiles })
-        });
+        }));
 
         const result = await response.json();
         

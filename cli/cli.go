@@ -52,28 +52,29 @@ func NewCLI() (*CLI, error) {
 		return nil, err
 	}
 
-	km := aws.NewKubeManager()
+	// Initialize database repository (single shared instance)
+	var dbRepo *db.ConfigRepository
+	database, err := db.NewDB()
+	if err == nil {
+		dbRepo = db.NewConfigRepository(database)
+	}
+
+	// Create shared managers with injected dependencies
+	km := aws.NewKubeManagerWithRepo(dbRepo)
+	ssm := aws.NewSSMManagerWithRepo(dbRepo)
 
 	tm, err := aws.NewTunnelManager()
 	if err != nil {
 		return nil, err
 	}
 
-	ssm := aws.NewSSMManager()
-	grpc := aws.NewGRPCManager()
-	dbMgr := aws.NewDatabaseManager()
-	redisMgr := aws.NewRedisManager()
-	mskMgr := aws.NewMSKManager()
-	maintMgr := aws.NewMaintenanceManager()
-	scaleMgr := aws.NewScalingManager()
-	replMgr := aws.NewReplicationManager()
-
-	// Initialize database repository
-	var dbRepo *db.ConfigRepository
-	database, err := db.NewDB()
-	if err == nil {
-		dbRepo = db.NewConfigRepository(database)
-	}
+	grpc := aws.NewGRPCManagerWithDeps(km, ps, dbRepo)
+	dbMgr := aws.NewDatabaseManagerWithDeps(km, ssm, ps)
+	redisMgr := aws.NewRedisManagerWithDeps(km, ssm, ps)
+	mskMgr := aws.NewMSKManagerWithDeps(km, ssm, ps)
+	maintMgr := aws.NewMaintenanceManagerWithRepo(dbRepo)
+	scaleMgr := aws.NewScalingManagerWithDeps(km, ps, dbRepo)
+	replMgr := aws.NewReplicationManagerWithRepo(dbRepo)
 
 	// Initialize config sync
 	var configSync *aws.ConfigSync
@@ -1519,7 +1520,7 @@ func (c *CLI) dbRestore(args []string) error {
 
 	// Confirmation prompt for restore operations
 	if !skipConfirm {
-		if !aws.ConfirmRestore(config.Environment, config.InputFile) {
+		if !utils.ConfirmDatabaseRestore(config.Environment, config.InputFile) {
 			fmt.Println("Restore cancelled.")
 			return nil
 		}
@@ -1815,7 +1816,7 @@ func (c *CLI) replicationSwitch(args []string) error {
 
 	// Confirmation prompt
 	if !skipConfirm {
-		if !aws.ConfirmReplicationSwitch(deploymentID, "(source)", "(target)") {
+		if !utils.ConfirmReplicationSwitch(deploymentID, "(source)", "(target)") {
 			fmt.Println("Switchover cancelled.")
 			return nil
 		}
@@ -1873,7 +1874,7 @@ func (c *CLI) replicationCreate(args []string) error {
 
 	// Confirmation prompt
 	if !skipConfirm {
-		if !aws.ConfirmReplicationCreate(name, source) {
+		if !utils.ConfirmReplicationCreate(name, source) {
 			fmt.Println("Creation cancelled.")
 			return nil
 		}
@@ -1910,7 +1911,7 @@ func (c *CLI) replicationDelete(args []string) error {
 
 	// Confirmation prompt
 	if !skipConfirm {
-		if !aws.ConfirmReplicationDelete(deploymentID, deleteTarget) {
+		if !utils.ConfirmReplicationDelete(deploymentID, deleteTarget) {
 			fmt.Println("Deletion cancelled.")
 			return nil
 		}

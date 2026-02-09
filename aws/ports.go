@@ -2,14 +2,13 @@ package aws
 
 import (
 	"fmt"
-	"os"
 	"rolewalkers/internal/db"
 	"slices"
 	"strings"
 )
 
-// PortMapping defines local ports for services per environment
-type PortMapping struct {
+// ServicePortMapping defines local ports for services per environment
+type ServicePortMapping struct {
 	Service     string
 	Environment string
 	Port        int
@@ -23,14 +22,12 @@ type PortConfig struct {
 
 // NewPortConfig creates a new port configuration
 func NewPortConfig() *PortConfig {
-	database, err := db.NewDB()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", err)
-		return &PortConfig{configRepo: nil}
-	}
-	return &PortConfig{
-		configRepo: db.NewConfigRepository(database),
-	}
+	return &PortConfig{configRepo: nil}
+}
+
+// NewPortConfigWithRepo creates a new port configuration with a shared config repository
+func NewPortConfigWithRepo(repo *db.ConfigRepository) *PortConfig {
+	return &PortConfig{configRepo: repo}
 }
 
 // GetPort returns the port(s) for a service and environment
@@ -61,7 +58,7 @@ func (pc *PortConfig) GetServices() string {
 			return strings.Join(names, ", ")
 		}
 	}
-	return "db, redis, elasticsearch, kafka, msk, rabbitmq, grpc"
+	return DefaultServices
 }
 
 // GetEnvironments returns all available environments
@@ -77,7 +74,7 @@ func (pc *PortConfig) GetEnvironments() string {
 			return strings.Join(names, ", ")
 		}
 	}
-	return "snd, dev, sit, preprod, trg, prod, qa, stage"
+	return strings.Join(DefaultEnvironments, ", ")
 }
 
 // ListAll returns a formatted string of all port mappings

@@ -18,8 +18,8 @@ type ScalingManager struct {
 	namespace       string
 }
 
-// ScalingPreset defines min/max replicas for a preset
-type ScalingPreset struct {
+// ScalingPresetConfig defines min/max replicas for a preset
+type ScalingPresetConfig struct {
 	Min int
 	Max int
 }
@@ -42,19 +42,18 @@ type HPAList struct {
 
 // NewScalingManager creates a new ScalingManager instance
 func NewScalingManager() *ScalingManager {
-	ps, err := NewProfileSwitcher()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ Profile switcher init failed: %v\n", err)
-	}
-	database, err := db.NewDB()
-	var repo *db.ConfigRepository
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", err)
-	} else {
-		repo = db.NewConfigRepository(database)
-	}
 	return &ScalingManager{
 		kubeManager:     NewKubeManager(),
+		profileSwitcher: nil,
+		configRepo:      nil,
+		namespace:       "zenith",
+	}
+}
+
+// NewScalingManagerWithDeps creates a new ScalingManager with shared dependencies
+func NewScalingManagerWithDeps(km *KubeManager, ps *ProfileSwitcher, repo *db.ConfigRepository) *ScalingManager {
+	return &ScalingManager{
+		kubeManager:     km,
 		profileSwitcher: ps,
 		configRepo:      repo,
 		namespace:       "zenith",
@@ -73,7 +72,7 @@ func (sm *ScalingManager) ValidEnvironments() []string {
 			return names
 		}
 	}
-	return []string{"snd", "dev", "sit", "preprod", "trg", "prod", "qa", "stage"}
+	return DefaultEnvironments
 }
 
 // ValidPresets returns the list of valid preset names
@@ -88,23 +87,23 @@ func (sm *ScalingManager) ValidPresets() []string {
 			return names
 		}
 	}
-	return []string{"normal", "performance", "minimal"}
+	return DefaultPresets
 }
 
 // Scale applies a preset to all HPAs in the environment
 func (sm *ScalingManager) Scale(env, presetName string) error {
-	var preset ScalingPreset
+	var preset ScalingPresetConfig
 	
 	if sm.configRepo != nil {
 		dbPreset, err := sm.configRepo.GetScalingPreset(presetName)
 		if err == nil {
-			preset = ScalingPreset{Min: dbPreset.MinReplicas, Max: dbPreset.MaxReplicas}
+			preset = ScalingPresetConfig{Min: dbPreset.MinReplicas, Max: dbPreset.MaxReplicas}
 		} else {
 			return fmt.Errorf("invalid preset: %s (valid: %s)", presetName, strings.Join(sm.ValidPresets(), ", "))
 		}
 	} else {
 		// Fallback to hardcoded presets
-		presets := map[string]ScalingPreset{
+		presets := map[string]ScalingPresetConfig{
 			"normal":      {Min: 2, Max: 10},
 			"performance": {Min: 10, Max: 50},
 			"minimal":     {Min: 1, Max: 3},

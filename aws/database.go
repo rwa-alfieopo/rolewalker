@@ -30,13 +30,18 @@ type DatabaseConfig struct {
 
 // NewDatabaseManager creates a new DatabaseManager instance
 func NewDatabaseManager() *DatabaseManager {
-	ps, err := NewProfileSwitcher()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ Profile switcher init failed: %v\n", err)
-	}
 	return &DatabaseManager{
 		kubeManager:     NewKubeManager(),
 		ssmManager:      NewSSMManager(),
+		profileSwitcher: nil,
+	}
+}
+
+// NewDatabaseManagerWithDeps creates a new DatabaseManager with shared dependencies
+func NewDatabaseManagerWithDeps(km *KubeManager, ssm *SSMManager, ps *ProfileSwitcher) *DatabaseManager {
+	return &DatabaseManager{
+		kubeManager:     km,
+		ssmManager:      ssm,
 		profileSwitcher: ps,
 	}
 }
@@ -380,9 +385,4 @@ func (dm *DatabaseManager) runPsqlRestorePod(podName, endpoint, password string,
 	}
 
 	return nil
-}
-
-// ConfirmRestore prompts the user for confirmation before restore
-func ConfirmRestore(env, inputFile string) bool {
-	return utils.ConfirmDatabaseRestore(env, inputFile)
 }

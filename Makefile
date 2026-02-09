@@ -33,5 +33,8 @@ fmt:
 vet:
 	go vet ./...
 
+lint:
+	golangci-lint run ./...
+
 run: build
 	./$(BIN_DIR)/$(APP_NAME)

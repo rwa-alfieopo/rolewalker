@@ -153,7 +153,7 @@ rolewalkers/
 
 ## Requirements
 
-- Go 1.25+
+- Go 1.24+
 - AWS CLI v2 (for SSO login)
 - kubectl (for Kubernetes operations)
 - psql (for database operations)

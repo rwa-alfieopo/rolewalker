@@ -57,24 +57,25 @@ type fastlyDictionaryItem struct {
 
 // NewMaintenanceManager creates a new maintenance manager
 func NewMaintenanceManager() *MaintenanceManager {
-	database, err := db.NewDB()
-	var repo *db.ConfigRepository
+	return newMaintenanceManager(nil)
+}
+
+// NewMaintenanceManagerWithRepo creates a new maintenance manager with a shared config repository
+func NewMaintenanceManagerWithRepo(repo *db.ConfigRepository) *MaintenanceManager {
+	return newMaintenanceManager(repo)
+}
+
+func newMaintenanceManager(repo *db.ConfigRepository) *MaintenanceManager {
 	var baseURL string
-	
-	if err == nil {
-		repo = db.NewConfigRepository(database)
+	if repo != nil {
 		endpoint, err := repo.GetAPIEndpoint("fastly")
 		if err == nil {
 			baseURL = endpoint.BaseURL
 		}
-	} else {
-		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", err)
 	}
-	
 	if baseURL == "" {
 		baseURL = "https://api.fastly.com"
 	}
-	
 	return &MaintenanceManager{
 		apiToken:   os.Getenv("FASTLY_API_TOKEN"),
 		baseURL:    baseURL,
@@ -95,7 +96,7 @@ func (mm *MaintenanceManager) ValidEnvironments() []string {
 			return names
 		}
 	}
-	return []string{"snd", "dev", "sit", "preprod", "trg", "prod"}
+	return DefaultEnvironments
 }
 
 // ValidServiceTypes returns the list of valid service types

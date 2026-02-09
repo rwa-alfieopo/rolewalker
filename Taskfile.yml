@@ -43,3 +43,8 @@ tasks:
     summary: Runs go vet
     cmds:
       - go vet ./...
+
+  lint:
+    summary: Runs golangci-lint
+    cmds:
+      - golangci-lint run ./...

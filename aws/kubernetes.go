@@ -24,14 +24,12 @@ type KubeContext struct {
 
 // NewKubeManager creates a new KubeManager instance
 func NewKubeManager() *KubeManager {
-	database, err := db.NewDB()
-	if err != nil {
-		// Fallback to empty manager if DB fails
-		return &KubeManager{configRepo: nil}
-	}
-	return &KubeManager{
-		configRepo: db.NewConfigRepository(database),
-	}
+	return &KubeManager{configRepo: nil}
+}
+
+// NewKubeManagerWithRepo creates a new KubeManager with a shared config repository
+func NewKubeManagerWithRepo(repo *db.ConfigRepository) *KubeManager {
+	return &KubeManager{configRepo: repo}
 }
 
 // GetContexts returns all available kubectl contexts

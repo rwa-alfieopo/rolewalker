@@ -36,6 +36,9 @@ Thumbs.db
 # Kiro
 .kiro/
 
-# Documentation (except README)
+# Documentation (except project docs)
 *.md
 !README.md
+!ARCHITECTURE.md
+!AUDIT_CHECKLIST.md
+!CODE_QUALITY_CHECKLIST.md

@@ -2,6 +2,7 @@ package aws
 
 import (
 	"fmt"
+	"os"
 	"rolewalkers/internal/db"
 	"slices"
 	"strings"
@@ -24,6 +25,7 @@ type PortConfig struct {
 func NewPortConfig() *PortConfig {
 	database, err := db.NewDB()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", err)
 		return &PortConfig{configRepo: nil}
 	}
 	return &PortConfig{

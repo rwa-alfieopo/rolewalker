@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"rolewalkers/internal/awscli"
 	"rolewalkers/internal/db"
 	"strings"
@@ -21,6 +22,8 @@ func NewSSMManager() *SSMManager {
 	var repo *db.ConfigRepository
 	if err == nil {
 		repo = db.NewConfigRepository(database)
+	} else {
+		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", err)
 	}
 	return &SSMManager{
 		region:     "eu-west-2",

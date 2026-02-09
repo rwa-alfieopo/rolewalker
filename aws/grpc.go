@@ -22,11 +22,16 @@ type GRPCManager struct {
 
 // NewGRPCManager creates a new GRPCManager instance
 func NewGRPCManager() *GRPCManager {
-	ps, _ := NewProfileSwitcher()
-	database, err := db.NewDB()
+	ps, err := NewProfileSwitcher()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Profile switcher init failed: %v\n", err)
+	}
+	database, dbErr := db.NewDB()
 	var repo *db.ConfigRepository
-	if err == nil {
+	if dbErr == nil {
 		repo = db.NewConfigRepository(database)
+	} else {
+		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", dbErr)
 	}
 	return &GRPCManager{
 		kubeManager:     NewKubeManager(),

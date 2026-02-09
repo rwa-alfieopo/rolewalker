@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -642,9 +643,18 @@ func (c *CLI) context(args []string) error {
 		fmt.Printf("%s|%s|%s|%s\n", activeProfile, accountName, kubeContext, namespace)
 		
 	case "json":
-		// JSON format
-		fmt.Printf(`{"profile":"%s","account_name":"%s","account_id":"%s","region":"%s","eks_cluster":"%s","namespace":"%s"}`+"\n",
-			activeProfile, accountName, accountID, region, kubeContext, namespace)
+		// JSON format — properly marshaled to prevent injection
+		jsonOutput := map[string]string{
+			"profile":      activeProfile,
+			"account_name": accountName,
+			"account_id":   accountID,
+			"region":       region,
+			"eks_cluster":  kubeContext,
+			"namespace":    namespace,
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(jsonOutput); err != nil {
+			return fmt.Errorf("failed to encode JSON: %w", err)
+		}
 		
 	default:
 		// Human-readable format
@@ -2190,14 +2200,17 @@ func (c *CLI) web(args []string) error {
 }
 
 func RunCLI() {
+	if err := runCLI(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runCLI() error {
 	cli, err := NewCLI()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
-	if err := cli.Run(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	return cli.Run(os.Args[1:])
 }

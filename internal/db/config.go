@@ -558,10 +558,19 @@ func (r *ConfigRepository) UpdateAWSRole(roleID int, updates map[string]interfac
 		return nil
 	}
 
+	// Whitelist allowed column names to prevent SQL injection via map keys
+	allowedColumns := map[string]bool{
+		"role_name": true, "role_arn": true, "region": true,
+		"profile_name": true, "description": true, "account_id": true, "active": true,
+	}
+
 	var setClauses []string
 	var args []interface{}
 
 	for key, value := range updates {
+		if !allowedColumns[key] {
+			return fmt.Errorf("invalid column name: %s", key)
+		}
 		setClauses = append(setClauses, fmt.Sprintf("%s = ?", key))
 		args = append(args, value)
 	}

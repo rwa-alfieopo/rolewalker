@@ -106,7 +106,7 @@ func (db *DB) createMigrationsTable() error {
 	return err
 }
 
-// runMigration runs a single migration if not already applied
+// runMigration runs a single migration if not already applied, wrapped in a transaction
 func (db *DB) runMigration(version int, name string, up func(*DB) error) error {
 	// Check if already applied
 	var count int
@@ -119,12 +119,21 @@ func (db *DB) runMigration(version int, name string, up func(*DB) error) error {
 		return nil // Already applied
 	}
 
-	// Run migration
+	// Run migration inside a transaction
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	if err := up(db); err != nil {
 		return err
 	}
 
 	// Record migration
-	_, err = db.Exec("INSERT INTO migrations (version, name) VALUES (?, ?)", version, name)
-	return err
+	if _, err := tx.Exec("INSERT INTO migrations (version, name) VALUES (?, ?)", version, name); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }

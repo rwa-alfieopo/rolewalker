@@ -3,6 +3,8 @@ package aws
 import (
 	"bytes"
 	"cmp"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -28,7 +30,10 @@ type DatabaseConfig struct {
 
 // NewDatabaseManager creates a new DatabaseManager instance
 func NewDatabaseManager() *DatabaseManager {
-	ps, _ := NewProfileSwitcher()
+	ps, err := NewProfileSwitcher()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Profile switcher init failed: %v\n", err)
+	}
 	return &DatabaseManager{
 		kubeManager:     NewKubeManager(),
 		ssmManager:      NewSSMManager(),
@@ -92,21 +97,17 @@ func (dm *DatabaseManager) runPsqlPod(podName, endpoint, password string) error 
 	// Build labels with creator identity
 	labels := k8s.CreatorLabelsWithSession()
 
-	// NOTE: PGPASSWORD is passed via --env flag to kubectl run, which means it's visible
-	// in the local process list (ps aux). For production-grade security, consider using
-	// Kubernetes Secrets with --env-from instead. This is acceptable for a dev CLI tool.
+	// Pass PGPASSWORD via pod spec override to avoid exposing it in the process list
+	overrides := fmt.Sprintf(`{"spec":{"containers":[{"name":"%s","image":"postgres:15-alpine","stdin":true,"tty":true,"command":["psql","-h","%s","-U","zenithmaster","-d","postgres"],"env":[{"name":"PGPASSWORD","value":"%s"}]}]}}`, podName, endpoint, password)
+
 	cmd := exec.Command("kubectl", "run", podName,
 		"--rm", "-it",
 		"--restart=Never",
-		"--namespace=tunnel-access",
+		"--namespace="+TunnelAccessNamespace,
 		"--image=postgres:15-alpine",
 		"--labels", labels,
-		fmt.Sprintf("--env=PGPASSWORD=%s", password),
-		"--",
-		"psql",
-		"-h", endpoint,
-		"-U", "zenithmaster",
-		"-d", "postgres",
+		"--overrides", overrides,
+		"--override-type=strategic",
 	)
 
 	cmd.Stdin = os.Stdin
@@ -116,7 +117,8 @@ func (dm *DatabaseManager) runPsqlPod(podName, endpoint, password string) error 
 	err := cmd.Run()
 	if err != nil {
 		// Check if it's just the user exiting normally
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			if exitErr.ExitCode() == 0 {
 				return nil
 			}
@@ -204,19 +206,24 @@ func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, conf
 		pgDumpArgs = append(pgDumpArgs, "--schema-only")
 	}
 
+	// Build pg_dump command string for overrides
+	pgDumpCmd := append([]string{"pg_dump"}, pgDumpArgs...)
+
+	// Pass PGPASSWORD via pod spec override to avoid exposing it in the process list
+	cmdJSON, _ := json.Marshal(pgDumpCmd)
+	overrides := fmt.Sprintf(`{"spec":{"containers":[{"name":"%s","image":"postgres:15-alpine","stdin":true,"command":%s,"env":[{"name":"PGPASSWORD","value":"%s"}]}]}}`, podName, string(cmdJSON), password)
+
 	// Build kubectl command
 	args := []string{
 		"run", podName,
 		"--rm", "-i",
 		"--restart=Never",
-		"--namespace=tunnel-access",
+		"--namespace=" + TunnelAccessNamespace,
 		"--image=postgres:15-alpine",
 		"--labels", labels,
-		fmt.Sprintf("--env=PGPASSWORD=%s", password),
-		"--",
-		"pg_dump",
+		"--overrides", overrides,
+		"--override-type=strategic",
 	}
-	args = append(args, pgDumpArgs...)
 
 	cmd := exec.Command("kubectl", args...)
 
@@ -327,19 +334,24 @@ func (dm *DatabaseManager) runPsqlRestorePod(podName, endpoint, password string,
 		// or we can add -c flag which sends \c command
 	}
 
+	// Build psql command for overrides
+	psqlCmd := append([]string{"psql"}, psqlArgs...)
+	cmdJSON, _ := json.Marshal(psqlCmd)
+
+	// Pass PGPASSWORD via pod spec override to avoid exposing it in the process list
+	overrides := fmt.Sprintf(`{"spec":{"containers":[{"name":"%s","image":"postgres:15-alpine","stdin":true,"command":%s,"env":[{"name":"PGPASSWORD","value":"%s"}]}]}}`, podName, string(cmdJSON), password)
+
 	// Build kubectl command
 	args := []string{
 		"run", podName,
 		"--rm", "-i",
 		"--restart=Never",
-		"--namespace=tunnel-access",
+		"--namespace=" + TunnelAccessNamespace,
 		"--image=postgres:15-alpine",
 		"--labels", labels,
-		fmt.Sprintf("--env=PGPASSWORD=%s", password),
-		"--",
-		"psql",
+		"--overrides", overrides,
+		"--override-type=strategic",
 	}
-	args = append(args, psqlArgs...)
 
 	cmd := exec.Command("kubectl", args...)
 

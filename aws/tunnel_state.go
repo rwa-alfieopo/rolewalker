@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -37,7 +38,7 @@ func NewTunnelState() (*TunnelState, error) {
 	}
 
 	stateDir := filepath.Join(homeDir, ".rolewalkers")
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
+	if err := os.MkdirAll(stateDir, 0700); err != nil {
 		return nil, fmt.Errorf("failed to create state directory: %w", err)
 	}
 
@@ -71,14 +72,29 @@ func (ts *TunnelState) load() error {
 	return json.Unmarshal(data, ts)
 }
 
-// save writes the state to disk
+// save writes the state to disk with file locking for cross-process safety
 func (ts *TunnelState) save() error {
 	data, err := json.MarshalIndent(ts, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(ts.filePath, data, 0644)
+	// Use a lock file to prevent concurrent writes from multiple CLI processes
+	lockPath := ts.filePath + ".lock"
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		// Fall back to writing without lock
+		return os.WriteFile(ts.filePath, data, 0600)
+	}
+	defer lockFile.Close()
+
+	if err := syscall.Flock(int(lockFile.Fd()), syscall.LOCK_EX); err != nil {
+		// Fall back to writing without lock
+		return os.WriteFile(ts.filePath, data, 0600)
+	}
+	defer syscall.Flock(int(lockFile.Fd()), syscall.LOCK_UN)
+
+	return os.WriteFile(ts.filePath, data, 0600)
 }
 
 // Add adds a tunnel to the state

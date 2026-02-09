@@ -23,7 +23,10 @@ type MSKManager struct {
 
 // NewMSKManager creates a new MSKManager instance
 func NewMSKManager() *MSKManager {
-	ps, _ := NewProfileSwitcher()
+	ps, err := NewProfileSwitcher()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Profile switcher init failed: %v\n", err)
+	}
 	return &MSKManager{
 		kubeManager:     NewKubeManager(),
 		ssmManager:      NewSSMManager(),
@@ -142,7 +145,7 @@ func (mm *MSKManager) createKafkaUIPod(podName, env, brokers string) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s", stderr.String())
+		return fmt.Errorf("kubectl error: %s", stderr.String())
 	}
 
 	return nil

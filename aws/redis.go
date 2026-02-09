@@ -1,12 +1,14 @@
 package aws
 
 import (
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
 	"os/exec"
 	"rolewalkers/internal/k8s"
 	"rolewalkers/internal/utils"
+	"strconv"
 	"strings"
 )
 
@@ -19,7 +21,10 @@ type RedisManager struct {
 
 // NewRedisManager creates a new RedisManager instance
 func NewRedisManager() *RedisManager {
-	ps, _ := NewProfileSwitcher()
+	ps, err := NewProfileSwitcher()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠ Profile switcher init failed: %v\n", err)
+	}
 	return &RedisManager{
 		kubeManager:     NewKubeManager(),
 		ssmManager:      NewSSMManager(),
@@ -80,7 +85,7 @@ func parseRedisHost(endpoint string) string {
 	if idx := strings.LastIndex(endpoint, ":"); idx != -1 {
 		// Check if what follows is a port number
 		port := endpoint[idx+1:]
-		if _, err := fmt.Sscanf(port, "%d", new(int)); err == nil {
+		if _, err := strconv.Atoi(port); err == nil {
 			return endpoint[:idx]
 		}
 	}
@@ -95,21 +100,17 @@ func (rm *RedisManager) runRedisPodWithStatus(podName, host, password string) er
 	fmt.Println("Creating Redis CLI pod...")
 	fmt.Println("Status: Pulling image redis:7-alpine...")
 	
+	// Pass REDISCLI_AUTH via pod spec override to avoid exposing it in the process list
+	overrides := fmt.Sprintf(`{"spec":{"containers":[{"name":"%s","image":"redis:7-alpine","stdin":true,"tty":true,"command":["redis-cli","-h","%s","-p","6379","-c","--tls","--user","zenithmaster"],"env":[{"name":"REDISCLI_AUTH","value":"%s"}]}]}}`, podName, host, password)
+
 	cmd := exec.Command("kubectl", "run", podName,
 		"--rm", "-it",
 		"--restart=Never",
-		"--namespace=tunnel-access",
+		"--namespace="+TunnelAccessNamespace,
 		"--image=redis:7-alpine",
 		"--labels", labels,
-		"--env", fmt.Sprintf("REDISCLI_AUTH=%s", password),
-		"--",
-		"redis-cli",
-		"-h", host,
-		"-p", "6379",
-		"-c",           // Enable cluster mode
-		"--tls",        // Use TLS (required for AWS ElastiCache)
-		"--insecure",   // Skip TLS cert verification
-		"--user", "zenithmaster",
+		"--overrides", overrides,
+		"--override-type=strategic",
 	)
 
 	cmd.Stdin = os.Stdin
@@ -125,7 +126,8 @@ func (rm *RedisManager) runRedisPodWithStatus(podName, host, password string) er
 	err := cmd.Run()
 	if err != nil {
 		// Check if it's just the user exiting normally
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			if exitErr.ExitCode() == 0 {
 				return nil
 			}

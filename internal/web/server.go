@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	crypto_rand "crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,6 +33,7 @@ type Server struct {
 	ssoManager   *aws.SSOManager
 	kubeManager  *aws.KubeManager
 	logger       *slog.Logger
+	authToken    string // Bearer token generated at startup for API auth
 }
 
 type AccountResponse struct {
@@ -92,13 +94,12 @@ func isValidAccountName(name string) bool {
 }
 
 func isValidURL(urlStr string) bool {
-	_, err := url.Parse(urlStr)
+	u, err := url.Parse(urlStr)
 	if err != nil {
 		return false
 	}
-	// Must be a valid HTTP/HTTPS URL
-	u, _ := url.Parse(urlStr)
-	return u.Scheme == "http" || u.Scheme == "https"
+	// Must be a valid HTTP/HTTPS URL with a host
+	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 func isValidRegion(region string) bool {
@@ -276,15 +277,26 @@ func validateImportConfigRequest(req struct {
 func (s *Server) writeValidationError(w http.ResponseWriter, validationErrors []ValidationError) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
-	json.NewEncoder(w).Encode(ValidationErrorResponse{
+	if err := json.NewEncoder(w).Encode(ValidationErrorResponse{
 		Error:  "Validation failed",
 		Fields: validationErrors,
-	})
+	}); err != nil {
+		s.logger.Error("Failed to encode validation error response", "error", err)
+	}
 }
 
 func NewServer(port int, dbRepo *db.ConfigRepository, roleSwitcher *aws.RoleSwitcher) *Server {
 	ssoManager, _ := aws.NewSSOManager()
 	kubeManager := aws.NewKubeManager()
+
+	// Generate a random bearer token for API authentication
+	tokenBytes := make([]byte, 32)
+	if _, err := crypto_rand.Read(tokenBytes); err != nil {
+		// Fallback: use a timestamp-based token (less secure but functional)
+		tokenBytes = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+	}
+	token := fmt.Sprintf("%x", tokenBytes)
+
 	return &Server{
 		port:         port,
 		dbRepo:       dbRepo,
@@ -292,23 +304,24 @@ func NewServer(port int, dbRepo *db.ConfigRepository, roleSwitcher *aws.RoleSwit
 		ssoManager:   ssoManager,
 		kubeManager:  kubeManager,
 		logger:       slog.Default(),
+		authToken:    token,
 	}
 }
 
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 
-	// API endpoints (wrapped with recovery + logging middleware)
-	mux.HandleFunc("GET /api/accounts", s.RecoveryMiddleware(s.logRequest(s.handleGetAccounts)))
-	mux.HandleFunc("POST /api/accounts", s.RecoveryMiddleware(s.logRequest(s.handleAddAccount)))
-	mux.HandleFunc("GET /api/accounts/{id}/roles", s.RecoveryMiddleware(s.logRequest(s.handleGetRoles)))
-	mux.HandleFunc("POST /api/roles", s.RecoveryMiddleware(s.logRequest(s.handleAddRole)))
-	mux.HandleFunc("GET /api/session/active", s.RecoveryMiddleware(s.logRequest(s.handleGetActiveSession)))
-	mux.HandleFunc("POST /api/session/switch", s.RecoveryMiddleware(s.logRequest(s.handleSwitchSession)))
-	mux.HandleFunc("GET /api/session/login-status/{profileName}", s.RecoveryMiddleware(s.logRequest(s.handleGetLoginStatus)))
-	mux.HandleFunc("POST /api/session/login", s.RecoveryMiddleware(s.logRequest(s.handleLoginRole)))
-	mux.HandleFunc("GET /api/config/import", s.RecoveryMiddleware(s.logRequest(s.handleImportConfig)))
-	mux.HandleFunc("POST /api/config/import", s.RecoveryMiddleware(s.logRequest(s.handleImportConfig)))
+	// API endpoints (wrapped with auth + recovery + logging middleware)
+	mux.HandleFunc("GET /api/accounts", s.RecoveryMiddleware(s.logRequest(s.requireAuth(s.handleGetAccounts))))
+	mux.HandleFunc("POST /api/accounts", s.RecoveryMiddleware(s.logRequest(s.requireAuth(s.handleAddAccount))))
+	mux.HandleFunc("GET /api/accounts/{id}/roles", s.RecoveryMiddleware(s.logRequest(s.requireAuth(s.handleGetRoles))))
+	mux.HandleFunc("POST /api/roles", s.RecoveryMiddleware(s.logRequest(s.requireAuth(s.handleAddRole))))
+	mux.HandleFunc("GET /api/session/active", s.RecoveryMiddleware(s.logRequest(s.requireAuth(s.handleGetActiveSession))))
+	mux.HandleFunc("POST /api/session/switch", s.RecoveryMiddleware(s.logRequest(s.requireAuth(s.handleSwitchSession))))
+	mux.HandleFunc("GET /api/session/login-status/{profileName}", s.RecoveryMiddleware(s.logRequest(s.requireAuth(s.handleGetLoginStatus))))
+	mux.HandleFunc("POST /api/session/login", s.RecoveryMiddleware(s.logRequest(s.requireAuth(s.handleLoginRole))))
+	mux.HandleFunc("GET /api/config/import", s.RecoveryMiddleware(s.logRequest(s.requireAuth(s.handleImportConfig))))
+	mux.HandleFunc("POST /api/config/import", s.RecoveryMiddleware(s.logRequest(s.requireAuth(s.handleImportConfig))))
 
 	// Serve static files using embedded or disk filesystem
 	webFS, _ := s.getWebDir()
@@ -331,8 +344,11 @@ func (s *Server) Start() error {
 
 	addr := fmt.Sprintf("localhost:%d", s.port)
 	server := &http.Server{
-		Addr:    addr,
-		Handler: s.securityHeaders(mux),
+		Addr:         addr,
+		Handler:      s.securityHeaders(mux),
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	// Graceful shutdown on Ctrl+C / SIGTERM — releases DB lock cleanly
@@ -348,7 +364,8 @@ func (s *Server) Start() error {
 	}()
 
 	s.logger.Info("Starting web server", "address", addr)
-	s.openBrowser(fmt.Sprintf("http://%s", addr))
+	s.logger.Info("API auth token", "token", s.authToken)
+	s.openBrowser(fmt.Sprintf("http://%s?token=%s", addr, s.authToken))
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
@@ -366,6 +383,26 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// requireAuth validates the bearer token or query param token for API requests
+func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := ""
+		// Check Authorization header first
+		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			token = strings.TrimPrefix(auth, "Bearer ")
+		}
+		// Fall back to query parameter
+		if token == "" {
+			token = r.URL.Query().Get("token")
+		}
+		if token != s.authToken {
+			s.writeError(w, http.StatusUnauthorized, "Unauthorized")
+			return
+		}
+		next(w, r)
+	}
 }
 
 func (s *Server) getWebDir() (http.FileSystem, bool) {
@@ -402,7 +439,9 @@ func (s *Server) openBrowser(url string) {
 		cmd = exec.Command("cmd", "/c", "start", url)
 	}
 	if cmd != nil {
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			s.logger.Warn("Failed to open browser", "error", err)
+		}
 	}
 }
 
@@ -487,6 +526,7 @@ func (s *Server) handleAddAccount(w http.ResponseWriter, r *http.Request) {
 		Description string `json:"description"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
@@ -573,6 +613,7 @@ func (s *Server) handleAddRole(w http.ResponseWriter, r *http.Request) {
 		Description string `json:"description"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
@@ -647,6 +688,7 @@ func (s *Server) handleSwitchSession(w http.ResponseWriter, r *http.Request) {
 		ProfileName string `json:"profile_name"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
@@ -687,6 +729,7 @@ func (s *Server) handleLoginRole(w http.ResponseWriter, r *http.Request) {
 		ProfileName string `json:"profile_name"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB max
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.writeError(w, http.StatusBadRequest, "Invalid request body")
 		return
@@ -984,5 +1027,7 @@ func (s *Server) writeError(w http.ResponseWriter, statusCode int, message strin
 		resp.Error = message
 	}
 
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		s.logger.Error("Failed to encode error response", "error", err)
+	}
 }

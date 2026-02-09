@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"rolewalkers/internal/awscli"
 	"rolewalkers/internal/db"
 	"rolewalkers/internal/utils"
@@ -49,6 +50,8 @@ func NewReplicationManager() *ReplicationManager {
 	var repo *db.ConfigRepository
 	if err == nil {
 		repo = db.NewConfigRepository(database)
+	} else {
+		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", err)
 	}
 	return &ReplicationManager{
 		region:     "eu-west-2",

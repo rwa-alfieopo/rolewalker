@@ -2,7 +2,7 @@ package aws
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -109,7 +109,7 @@ func (sm *SSOManager) LoginWithBrowser(profileName string) error {
 
 // GetCachedToken retrieves cached SSO token for a start URL
 func (sm *SSOManager) GetCachedToken(startURL string) (*SSOCache, error) {
-	hash := sha1.Sum([]byte(startURL))
+	hash := sha256.Sum256([]byte(startURL))
 	cacheFile := filepath.Join(sm.cacheDir, hex.EncodeToString(hash[:])+".json")
 
 	data, err := os.ReadFile(cacheFile)

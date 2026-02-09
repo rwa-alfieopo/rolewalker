@@ -35,7 +35,7 @@ func (pm *PodManager) DeletePod(podName string) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s", stderr.String())
+		return fmt.Errorf("kubectl delete pod failed: %s", stderr.String())
 	}
 
 	return nil
@@ -54,7 +54,7 @@ func (pm *PodManager) GetPodStatus(podName string) (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s", stderr.String())
+		return "", fmt.Errorf("kubectl get pod status failed: %s", stderr.String())
 	}
 
 	return strings.TrimSpace(out.String()), nil

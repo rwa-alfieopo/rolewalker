@@ -67,6 +67,8 @@ func NewMaintenanceManager() *MaintenanceManager {
 		if err == nil {
 			baseURL = endpoint.BaseURL
 		}
+	} else {
+		fmt.Fprintf(os.Stderr, "⚠ Database init failed: %v\n", err)
 	}
 	
 	if baseURL == "" {
@@ -243,7 +245,7 @@ func (mm *MaintenanceManager) findServiceName(env, serviceType string) (string, 
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB max
 	if err != nil {
 		return "", err
 	}
@@ -280,7 +282,7 @@ func (mm *MaintenanceManager) getServiceID(serviceName string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB max
 	if err != nil {
 		return "", err
 	}
@@ -306,7 +308,7 @@ func (mm *MaintenanceManager) getActiveVersion(serviceID string) (int, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB max
 	if err != nil {
 		return 0, err
 	}
@@ -338,7 +340,7 @@ func (mm *MaintenanceManager) getDictionaryID(serviceID string, version int) (st
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB max
 	if err != nil {
 		return "", err
 	}
@@ -393,7 +395,7 @@ func (mm *MaintenanceManager) getMaintenanceModeValue(serviceID, dictionaryID st
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB max
 	if err != nil {
 		return "", err
 	}

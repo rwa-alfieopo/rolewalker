@@ -257,7 +257,7 @@ func (sm *ScalingManager) patchHPA(name string, min, max int) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s", stderr.String())
+		return fmt.Errorf("kubectl error: %s", stderr.String())
 	}
 
 	return nil

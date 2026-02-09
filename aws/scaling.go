@@ -218,13 +218,13 @@ func (sm *ScalingManager) ListHPAs(env string) (string, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("HPAs in %s namespace:\n", sm.namespace))
+	fmt.Fprintf(&sb, "HPAs in %s namespace:\n", sm.namespace)
 	sb.WriteString(strings.Repeat("-", 60) + "\n")
-	sb.WriteString(fmt.Sprintf("%-40s %s\n", "NAME", "MIN/MAX"))
+	fmt.Fprintf(&sb, "%-40s %s\n", "NAME", "MIN/MAX")
 	sb.WriteString(strings.Repeat("-", 60) + "\n")
 
 	for _, hpa := range hpas {
-		sb.WriteString(fmt.Sprintf("%-40s %d/%d\n", hpa.Metadata.Name, hpa.Spec.MinReplicas, hpa.Spec.MaxReplicas))
+		fmt.Fprintf(&sb, "%-40s %d/%d\n", hpa.Metadata.Name, hpa.Spec.MinReplicas, hpa.Spec.MaxReplicas)
 	}
 
 	return sb.String(), nil

@@ -2,6 +2,7 @@ package aws
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"rolewalkers/internal/db"
 	"strings"
+	"time"
 )
 
 // MaintenanceManager handles Fastly maintenance mode operations
@@ -74,7 +76,7 @@ func NewMaintenanceManager() *MaintenanceManager {
 	return &MaintenanceManager{
 		apiToken:   os.Getenv("FASTLY_API_TOKEN"),
 		baseURL:    baseURL,
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: 30 * time.Second},
 		configRepo: repo,
 	}
 }
@@ -229,7 +231,7 @@ func (mm *MaintenanceManager) getMaintenanceStatus(env, serviceType string) (boo
 }
 
 func (mm *MaintenanceManager) findServiceName(env, serviceType string) (string, error) {
-	req, err := http.NewRequest("GET", mm.baseURL+"/service", nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", mm.baseURL+"/service", nil)
 	if err != nil {
 		return "", err
 	}
@@ -266,7 +268,7 @@ func (mm *MaintenanceManager) findServiceName(env, serviceType string) (string, 
 }
 
 func (mm *MaintenanceManager) getServiceID(serviceName string) (string, error) {
-	req, err := http.NewRequest("GET", mm.baseURL+"/service/search?name="+url.QueryEscape(serviceName), nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", mm.baseURL+"/service/search?name="+url.QueryEscape(serviceName), nil)
 	if err != nil {
 		return "", err
 	}
@@ -292,7 +294,7 @@ func (mm *MaintenanceManager) getServiceID(serviceName string) (string, error) {
 }
 
 func (mm *MaintenanceManager) getActiveVersion(serviceID string) (int, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/service/%s", mm.baseURL, serviceID), nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("%s/service/%s", mm.baseURL, serviceID), nil)
 	if err != nil {
 		return 0, err
 	}
@@ -324,7 +326,7 @@ func (mm *MaintenanceManager) getActiveVersion(serviceID string) (int, error) {
 }
 
 func (mm *MaintenanceManager) getDictionaryID(serviceID string, version int) (string, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("%s/service/%s/version/%d/dictionary/MainConfig", mm.baseURL, serviceID, version), nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("%s/service/%s/version/%d/dictionary/MainConfig", mm.baseURL, serviceID, version), nil)
 	if err != nil {
 		return "", err
 	}
@@ -353,7 +355,7 @@ func (mm *MaintenanceManager) updateMaintenanceMode(serviceID, dictionaryID, val
 	data := url.Values{}
 	data.Set("item_value", value)
 
-	req, err := http.NewRequest("PUT",
+	req, err := http.NewRequestWithContext(context.Background(), "PUT",
 		fmt.Sprintf("%s/service/%s/dictionary/%s/item/maintenanceMode", mm.baseURL, serviceID, dictionaryID),
 		bytes.NewBufferString(data.Encode()))
 	if err != nil {
@@ -377,7 +379,7 @@ func (mm *MaintenanceManager) updateMaintenanceMode(serviceID, dictionaryID, val
 }
 
 func (mm *MaintenanceManager) getMaintenanceModeValue(serviceID, dictionaryID string) (string, error) {
-	req, err := http.NewRequest("GET",
+	req, err := http.NewRequestWithContext(context.Background(), "GET",
 		fmt.Sprintf("%s/service/%s/dictionary/%s/item/maintenanceMode", mm.baseURL, serviceID, dictionaryID),
 		nil)
 	if err != nil {

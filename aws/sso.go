@@ -313,15 +313,15 @@ func (sm *SSOManager) GetAccountsForStartURL(startURL string) ([]string, error) 
 // FormatProfileInfo returns a formatted string with profile details
 func FormatProfileInfo(p Profile) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Profile: %s\n", p.Name))
+	fmt.Fprintf(&sb, "Profile: %s\n", p.Name)
 	if p.Region != "" {
-		sb.WriteString(fmt.Sprintf("  Region: %s\n", p.Region))
+		fmt.Fprintf(&sb, "  Region: %s\n", p.Region)
 	}
 	if p.IsSSO {
-		sb.WriteString(fmt.Sprintf("  SSO Start URL: %s\n", p.SSOStartURL))
-		sb.WriteString(fmt.Sprintf("  SSO Region: %s\n", p.SSORegion))
-		sb.WriteString(fmt.Sprintf("  Account ID: %s\n", p.SSOAccountID))
-		sb.WriteString(fmt.Sprintf("  Role: %s\n", p.SSORoleName))
+		fmt.Fprintf(&sb, "  SSO Start URL: %s\n", p.SSOStartURL)
+		fmt.Fprintf(&sb, "  SSO Region: %s\n", p.SSORegion)
+		fmt.Fprintf(&sb, "  Account ID: %s\n", p.SSOAccountID)
+		fmt.Fprintf(&sb, "  Role: %s\n", p.SSORoleName)
 	}
 	return sb.String()
 }

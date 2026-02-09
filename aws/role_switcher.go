@@ -221,17 +221,17 @@ func (rs *RoleSwitcher) ListAllAccounts() ([]db.AWSAccount, error) {
 // FormatRoleInfo returns a formatted string with role details
 func FormatRoleInfo(role db.AWSRole, account db.AWSAccount) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Profile: %s\n", role.ProfileName))
-	sb.WriteString(fmt.Sprintf("  Account: %s (%s)\n", account.AccountName, account.AccountID))
-	sb.WriteString(fmt.Sprintf("  Role: %s\n", role.RoleName))
-	sb.WriteString(fmt.Sprintf("  Region: %s\n", role.Region))
+	fmt.Fprintf(&sb, "Profile: %s\n", role.ProfileName)
+	fmt.Fprintf(&sb, "  Account: %s (%s)\n", account.AccountName, account.AccountID)
+	fmt.Fprintf(&sb, "  Role: %s\n", role.RoleName)
+	fmt.Fprintf(&sb, "  Region: %s\n", role.Region)
 	
 	if role.RoleARN.Valid && role.RoleARN.String != "" {
-		sb.WriteString(fmt.Sprintf("  ARN: %s\n", role.RoleARN.String))
+		fmt.Fprintf(&sb, "  ARN: %s\n", role.RoleARN.String)
 	}
 	
 	if account.SSOStartURL.Valid && account.SSOStartURL.String != "" {
-		sb.WriteString(fmt.Sprintf("  SSO: %s\n", account.SSOStartURL.String))
+		fmt.Fprintf(&sb, "  SSO: %s\n", account.SSOStartURL.String)
 	}
 	
 	return sb.String()

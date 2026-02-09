@@ -2,10 +2,10 @@ package aws
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"rolewalkers/internal/db"
@@ -19,11 +19,11 @@ type ConfigSync struct {
 
 // SyncResult holds the result of a config sync operation
 type SyncResult struct {
-	Imported  int
-	Updated   int
-	Skipped   int
-	Removed   int
-	Errors    []string
+	Imported   int
+	Updated    int
+	Skipped    int
+	Removed    int
+	Errors     []string
 	IsFirstRun bool
 }
 
@@ -41,6 +41,12 @@ type ConfigProfile struct {
 	IsSSO        bool
 }
 
+// ssoSessionInfo holds the start URL and region for an SSO session block.
+type ssoSessionInfo struct {
+	StartURL string
+	Region   string
+}
+
 // NewConfigSync creates a new config sync manager
 func NewConfigSync(dbRepo *db.ConfigRepository) (*ConfigSync, error) {
 	homeDir, err := os.UserHomeDir()
@@ -54,7 +60,8 @@ func NewConfigSync(dbRepo *db.ConfigRepository) (*ConfigSync, error) {
 	}, nil
 }
 
-// ParseAWSConfigFile reads and parses ~/.aws/config into ConfigProfile structs
+// ParseAWSConfigFile reads and parses ~/.aws/config into ConfigProfile structs.
+// Uses the package-level configProfileRegex to avoid recompilation per call.
 func (cs *ConfigSync) ParseAWSConfigFile() ([]ConfigProfile, error) {
 	file, err := os.Open(cs.configPath)
 	if err != nil {
@@ -66,7 +73,6 @@ func (cs *ConfigSync) ParseAWSConfigFile() ([]ConfigProfile, error) {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	profileRegex := regexp.MustCompile(`^\[(?:profile\s+)?(.+)\]$`)
 
 	var profiles []ConfigProfile
 	var current *ConfigProfile
@@ -77,7 +83,7 @@ func (cs *ConfigSync) ParseAWSConfigFile() ([]ConfigProfile, error) {
 			continue
 		}
 
-		if matches := profileRegex.FindStringSubmatch(line); matches != nil {
+		if matches := configProfileRegex.FindStringSubmatch(line); matches != nil {
 			// Save previous profile
 			if current != nil && !strings.HasPrefix(current.Name, "sso-session") {
 				profiles = append(profiles, *current)
@@ -206,8 +212,8 @@ func (cs *ConfigSync) SyncConfigToDB() (*SyncResult, error) {
 		return result, nil
 	}
 
-	// Resolve sso_session references - find the sso-session block's start_url
-	ssoSessionURLs := cs.extractSSOSessionURLs()
+	// Resolve sso_session references - parse once for both URL and region
+	ssoSessions := cs.extractSSOSessions()
 
 	for _, p := range profiles {
 		if p.Name == "default" {
@@ -215,13 +221,15 @@ func (cs *ConfigSync) SyncConfigToDB() (*SyncResult, error) {
 			continue
 		}
 
-		// Resolve sso_session to sso_start_url if needed
-		if p.SSOSession != "" && p.SSOStartURL == "" {
-			if url, ok := ssoSessionURLs[p.SSOSession]; ok {
-				p.SSOStartURL = url
-			}
-			if region, ok := ssoSessionRegions(cs.configPath)[p.SSOSession]; ok && p.SSORegion == "" {
-				p.SSORegion = region
+		// Resolve sso_session to sso_start_url and sso_region if needed
+		if p.SSOSession != "" {
+			if info, ok := ssoSessions[p.SSOSession]; ok {
+				if p.SSOStartURL == "" {
+					p.SSOStartURL = info.StartURL
+				}
+				if p.SSORegion == "" {
+					p.SSORegion = info.Region
+				}
 			}
 		}
 
@@ -235,10 +243,7 @@ func (cs *ConfigSync) SyncConfigToDB() (*SyncResult, error) {
 		if err != nil || account == nil {
 			// Create the account
 			accountName := cs.deriveAccountName(p.Name)
-			ssoRegion := p.SSORegion
-			if ssoRegion == "" {
-				ssoRegion = "eu-west-2"
-			}
+			ssoRegion := cmp.Or(p.SSORegion, "eu-west-2")
 
 			if err := cs.dbRepo.AddAWSAccount(p.SSOAccountID, accountName, p.SSOStartURL, ssoRegion, "Imported from AWS config"); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("%s: failed to create account: %v", p.Name, err))
@@ -281,16 +286,12 @@ func (cs *ConfigSync) SyncConfigToDB() (*SyncResult, error) {
 		}
 
 		// Create new role
-		roleName := p.SSORoleName
-		if roleName == "" {
-			roleName = "Role"
-		}
-		region := p.Region
-		if region == "" {
-			region = "eu-west-2"
-		}
+		roleName := cmp.Or(p.SSORoleName, "Role")
+		region := cmp.Or(p.Region, "eu-west-2")
 
 		if err := cs.dbRepo.AddAWSRole(account.ID, roleName, p.RoleARN, p.Name, region, "Imported from AWS config"); err != nil {
+			// String matching is necessary here because go-sqlite3 does not expose
+			// a typed sentinel error for constraint violations.
 			if strings.Contains(err.Error(), "UNIQUE constraint") {
 				result.Skipped++
 			} else {
@@ -330,10 +331,10 @@ func (cs *ConfigSync) GenerateAWSConfig() (string, error) {
 
 	// Write [sso-session] blocks first
 	for sessionName, startURL := range ssoSessions {
-		sb.WriteString(fmt.Sprintf("[sso-session %s]\n", sessionName))
-		sb.WriteString(fmt.Sprintf("sso_start_url = %s\n", startURL))
+		fmt.Fprintf(&sb, "[sso-session %s]\n", sessionName)
+		fmt.Fprintf(&sb, "sso_start_url = %s\n", startURL)
 		if region, ok := ssoSessionRegions[sessionName]; ok {
-			sb.WriteString(fmt.Sprintf("sso_region = %s\n", region))
+			fmt.Fprintf(&sb, "sso_region = %s\n", region)
 		}
 		sb.WriteString("sso_registration_scopes = sso:account:access\n")
 		sb.WriteString("\n")
@@ -343,13 +344,13 @@ func (cs *ConfigSync) GenerateAWSConfig() (string, error) {
 	_, activeRole, activeAccount, err := cs.dbRepo.GetActiveSession()
 	if err == nil && activeRole != nil && activeAccount != nil {
 		sb.WriteString("[default]\n")
-		sb.WriteString(fmt.Sprintf("region = %s\n", activeRole.Region))
+		fmt.Fprintf(&sb, "region = %s\n", activeRole.Region)
 		sb.WriteString("output = json\n")
 		if activeAccount.SSOStartURL.Valid && activeAccount.SSOStartURL.String != "" {
 			sessionName := cs.deriveSSOSessionName(activeAccount)
-			sb.WriteString(fmt.Sprintf("sso_session = %s\n", sessionName))
-			sb.WriteString(fmt.Sprintf("sso_account_id = %s\n", activeAccount.AccountID))
-			sb.WriteString(fmt.Sprintf("sso_role_name = %s\n", activeRole.RoleName))
+			fmt.Fprintf(&sb, "sso_session = %s\n", sessionName)
+			fmt.Fprintf(&sb, "sso_account_id = %s\n", activeAccount.AccountID)
+			fmt.Fprintf(&sb, "sso_role_name = %s\n", activeRole.RoleName)
 		}
 		sb.WriteString("\n")
 	}
@@ -367,16 +368,16 @@ func (cs *ConfigSync) GenerateAWSConfig() (string, error) {
 		}
 
 		for _, role := range roles {
-			sb.WriteString(fmt.Sprintf("[profile %s]\n", role.ProfileName))
+			fmt.Fprintf(&sb, "[profile %s]\n", role.ProfileName)
 			if sessionName != "" {
-				sb.WriteString(fmt.Sprintf("sso_session = %s\n", sessionName))
-				sb.WriteString(fmt.Sprintf("sso_account_id = %s\n", account.AccountID))
-				sb.WriteString(fmt.Sprintf("sso_role_name = %s\n", role.RoleName))
+				fmt.Fprintf(&sb, "sso_session = %s\n", sessionName)
+				fmt.Fprintf(&sb, "sso_account_id = %s\n", account.AccountID)
+				fmt.Fprintf(&sb, "sso_role_name = %s\n", role.RoleName)
 			}
 			if role.RoleARN.Valid && role.RoleARN.String != "" {
-				sb.WriteString(fmt.Sprintf("role_arn = %s\n", role.RoleARN.String))
+				fmt.Fprintf(&sb, "role_arn = %s\n", role.RoleARN.String)
 			}
-			sb.WriteString(fmt.Sprintf("region = %s\n", role.Region))
+			fmt.Fprintf(&sb, "region = %s\n", role.Region)
 			sb.WriteString("output = json\n")
 			sb.WriteString("\n")
 		}
@@ -449,9 +450,10 @@ func (cs *ConfigSync) deriveAccountName(profileName string) string {
 	return name
 }
 
-// extractSSOSessionURLs parses the config file for [sso-session X] blocks
-func (cs *ConfigSync) extractSSOSessionURLs() map[string]string {
-	result := make(map[string]string)
+// extractSSOSessions parses the config file for [sso-session X] blocks in a single pass,
+// returning both the start URL and region for each session.
+func (cs *ConfigSync) extractSSOSessions() map[string]ssoSessionInfo {
+	result := make(map[string]ssoSessionInfo)
 
 	file, err := os.Open(cs.configPath)
 	if err != nil {
@@ -460,51 +462,18 @@ func (cs *ConfigSync) extractSSOSessionURLs() map[string]string {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	ssoSessionRegex := regexp.MustCompile(`^\[sso-session\s+(.+)\]$`)
 	var currentSession string
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if matches := ssoSessionRegex.FindStringSubmatch(line); matches != nil {
+
+		if matches := configSSOSessionRegex.FindStringSubmatch(line); matches != nil {
 			currentSession = matches[1]
 			continue
-		}
-
-		if currentSession != "" && strings.Contains(line, "=") {
-			parts := strings.SplitN(line, "=", 2)
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			if key == "sso_start_url" {
-				result[currentSession] = value
-			}
 		}
 
 		if strings.HasPrefix(line, "[") {
 			currentSession = ""
-		}
-	}
-
-	return result
-}
-
-// ssoSessionRegions parses the config file for sso_region in [sso-session X] blocks
-func ssoSessionRegions(configPath string) map[string]string {
-	result := make(map[string]string)
-
-	file, err := os.Open(configPath)
-	if err != nil {
-		return result
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	ssoSessionRegex := regexp.MustCompile(`^\[sso-session\s+(.+)\]$`)
-	var currentSession string
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if matches := ssoSessionRegex.FindStringSubmatch(line); matches != nil {
-			currentSession = matches[1]
 			continue
 		}
 
@@ -512,13 +481,15 @@ func ssoSessionRegions(configPath string) map[string]string {
 			parts := strings.SplitN(line, "=", 2)
 			key := strings.TrimSpace(parts[0])
 			value := strings.TrimSpace(parts[1])
-			if key == "sso_region" {
-				result[currentSession] = value
-			}
-		}
 
-		if strings.HasPrefix(line, "[") && !strings.HasPrefix(line, "[sso-session") {
-			currentSession = ""
+			info := result[currentSession]
+			switch key {
+			case "sso_start_url":
+				info.StartURL = value
+			case "sso_region":
+				info.Region = value
+			}
+			result[currentSession] = info
 		}
 	}
 

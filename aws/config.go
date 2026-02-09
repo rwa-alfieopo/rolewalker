@@ -2,11 +2,12 @@ package aws
 
 import (
 	"bufio"
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -80,8 +81,8 @@ func (cm *ConfigManager) GetProfiles() ([]Profile, error) {
 	}
 
 	// Sort by name
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
+	slices.SortFunc(result, func(a, b Profile) int {
+		return cmp.Compare(a.Name, b.Name)
 	})
 
 	return result, nil

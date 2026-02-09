@@ -2,9 +2,10 @@ package aws
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -105,7 +106,7 @@ func (tm *TunnelManager) Start(config TunnelConfig) error {
 	if username == "unknown" {
 		username = "user"
 	}
-	podName := fmt.Sprintf("%stunnel-%s-%d", service, username, rand.Intn(10000))
+	podName := fmt.Sprintf("%stunnel-%s-%d", service, username, rand.IntN(10000))
 
 	fmt.Printf("Creating tunnel: %s\n", tunnelID)
 	fmt.Printf("  Pod: %s\n", podName)
@@ -153,14 +154,8 @@ func (tm *TunnelManager) Start(config TunnelConfig) error {
 func (tm *TunnelManager) getRemoteHost(service, env string, config TunnelConfig) (string, error) {
 	switch service {
 	case "db":
-		nodeType := config.NodeType
-		dbType := config.DBType
-		if nodeType == "" {
-			nodeType = "read"
-		}
-		if dbType == "" {
-			dbType = "query"
-		}
+		nodeType := cmp.Or(config.NodeType, "read")
+		dbType := cmp.Or(config.DBType, "query")
 		return tm.ssmManager.GetDatabaseEndpoint(env, nodeType, dbType)
 	case "grpc":
 		// gRPC uses direct service forwarding, not SSM
@@ -332,11 +327,11 @@ func (tm *TunnelManager) List() string {
 
 	for _, t := range tunnels {
 		status := tm.checkPodStatus(t.PodName)
-		sb.WriteString(fmt.Sprintf("\n%s:\n", t.ID))
-		sb.WriteString(fmt.Sprintf("  Pod:     %s (%s)\n", t.PodName, status))
-		sb.WriteString(fmt.Sprintf("  Local:   localhost:%d\n", t.LocalPort))
-		sb.WriteString(fmt.Sprintf("  Remote:  %s:%d\n", t.RemoteHost, t.RemotePort))
-		sb.WriteString(fmt.Sprintf("  Started: %s\n", t.StartedAt.Format("2006-01-02 15:04:05")))
+		fmt.Fprintf(&sb, "\n%s:\n", t.ID)
+		fmt.Fprintf(&sb, "  Pod:     %s (%s)\n", t.PodName, status)
+		fmt.Fprintf(&sb, "  Local:   localhost:%d\n", t.LocalPort)
+		fmt.Fprintf(&sb, "  Remote:  %s:%d\n", t.RemoteHost, t.RemotePort)
+		fmt.Fprintf(&sb, "  Started: %s\n", t.StartedAt.Format("2006-01-02 15:04:05"))
 	}
 
 	return sb.String()

@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"rolewalkers/internal/db"
-	"sort"
+	"slices"
 	"strings"
 	"syscall"
 )
@@ -60,7 +60,7 @@ func (gm *GRPCManager) GetServices() string {
 			for s := range microservices {
 				services = append(services, s)
 			}
-			sort.Strings(services)
+			slices.Sort(services)
 			return strings.Join(services, ", ")
 		}
 	}
@@ -77,7 +77,7 @@ func (gm *GRPCManager) ListServices() string {
 	var sb strings.Builder
 	sb.WriteString("gRPC Services:\n")
 	sb.WriteString(strings.Repeat("-", 50) + "\n")
-	sb.WriteString(fmt.Sprintf("%-15s %-10s %s\n", "SERVICE", "PORT", "K8S SERVICE"))
+	fmt.Fprintf(&sb, "%-15s %-10s %s\n", "SERVICE", "PORT", "K8S SERVICE")
 	sb.WriteString(strings.Repeat("-", 50) + "\n")
 
 	if gm.configRepo != nil {
@@ -87,12 +87,12 @@ func (gm *GRPCManager) ListServices() string {
 			for s := range microservices {
 				services = append(services, s)
 			}
-			sort.Strings(services)
+			slices.Sort(services)
 
 			for _, service := range services {
 				port := microservices[service]
 				k8sService := gm.GetServiceName(service)
-				sb.WriteString(fmt.Sprintf("%-15s %-10d %s\n", service, port, k8sService))
+				fmt.Fprintf(&sb, "%-15s %-10d %s\n", service, port, k8sService)
 			}
 
 			sb.WriteString("\nUsage: rw grpc <service> <env>\n")

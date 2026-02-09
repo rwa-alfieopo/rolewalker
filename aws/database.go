@@ -2,8 +2,9 @@ package aws
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"rolewalkers/internal/k8s"
@@ -42,12 +43,8 @@ func (dm *DatabaseManager) Connect(config DatabaseConfig) error {
 	dbType := strings.ToLower(config.DBType)
 
 	// Set defaults
-	if nodeType == "" {
-		nodeType = "read"
-	}
-	if dbType == "" {
-		dbType = "query"
-	}
+	nodeType = cmp.Or(nodeType, "read")
+	dbType = cmp.Or(dbType, "query")
 
 	// Switch kubectl context to the environment
 	fmt.Printf("Switching kubectl context to %s...\n", env)
@@ -75,7 +72,7 @@ func (dm *DatabaseManager) Connect(config DatabaseConfig) error {
 	if username == "unknown" {
 		username = "user"
 	}
-	podName := fmt.Sprintf("psql-%s-%d", username, rand.Intn(10000))
+	podName := fmt.Sprintf("psql-%s-%d", username, rand.IntN(10000))
 
 	fmt.Printf("\nConnecting to database:\n")
 	fmt.Printf("  Environment: %s\n", env)
@@ -175,7 +172,7 @@ func (dm *DatabaseManager) Backup(config BackupConfig) error {
 	if username == "unknown" {
 		username = "user"
 	}
-	podName := fmt.Sprintf("pgdump-%s-%d", username, rand.Intn(100000))
+	podName := fmt.Sprintf("pgdump-%s-%d", username, rand.IntN(100000))
 
 	fmt.Printf("\nStarting database backup:\n")
 	fmt.Printf("  Environment: %s\n", env)
@@ -293,7 +290,7 @@ func (dm *DatabaseManager) Restore(config RestoreConfig) error {
 	if username == "unknown" {
 		username = "user"
 	}
-	podName := fmt.Sprintf("pgrestore-%s-%d", username, rand.Intn(100000))
+	podName := fmt.Sprintf("pgrestore-%s-%d", username, rand.IntN(100000))
 
 	// Get file size for progress info
 	fileInfo, _ := os.Stat(config.InputFile)

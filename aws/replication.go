@@ -87,24 +87,24 @@ func (rm *ReplicationManager) Status(env string) (string, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Blue-Green Deployments for %s:\n", env))
+	fmt.Fprintf(&sb, "Blue-Green Deployments for %s:\n", env)
 	sb.WriteString(strings.Repeat("-", 80) + "\n")
 
 	for _, d := range deployments {
-		sb.WriteString(fmt.Sprintf("\nDeployment: %s\n", d.Name))
-		sb.WriteString(fmt.Sprintf("  Identifier:  %s\n", d.Identifier))
-		sb.WriteString(fmt.Sprintf("  Status:      %s\n", rm.formatStatus(d.Status)))
+		fmt.Fprintf(&sb, "\nDeployment: %s\n", d.Name)
+		fmt.Fprintf(&sb, "  Identifier:  %s\n", d.Identifier)
+		fmt.Fprintf(&sb, "  Status:      %s\n", rm.formatStatus(d.Status))
 		if d.StatusDetails != "" {
-			sb.WriteString(fmt.Sprintf("  Details:     %s\n", d.StatusDetails))
+			fmt.Fprintf(&sb, "  Details:     %s\n", d.StatusDetails)
 		}
-		sb.WriteString(fmt.Sprintf("  Source:      %s\n", rm.extractClusterName(d.Source)))
-		sb.WriteString(fmt.Sprintf("  Target:      %s\n", rm.extractClusterName(d.Target)))
-		sb.WriteString(fmt.Sprintf("  Created:     %s\n", d.CreateTime.Format("2006-01-02 15:04:05")))
+		fmt.Fprintf(&sb, "  Source:      %s\n", rm.extractClusterName(d.Source))
+		fmt.Fprintf(&sb, "  Target:      %s\n", rm.extractClusterName(d.Target))
+		fmt.Fprintf(&sb, "  Created:     %s\n", d.CreateTime.Format("2006-01-02 15:04:05"))
 
 		if len(d.Tasks) > 0 {
 			sb.WriteString("  Tasks:\n")
 			for _, t := range d.Tasks {
-				sb.WriteString(fmt.Sprintf("    - %s: %s\n", t.Name, t.Status))
+				fmt.Fprintf(&sb, "    - %s: %s\n", t.Name, t.Status)
 			}
 		}
 	}

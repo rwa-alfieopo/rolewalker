@@ -2,7 +2,7 @@ package aws
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"rolewalkers/internal/k8s"
@@ -61,7 +61,7 @@ func (rm *RedisManager) Connect(env string) error {
 	if username == "unknown" {
 		username = "user"
 	}
-	podName := fmt.Sprintf("redis-temp-%s-%d", username, rand.Intn(10000))
+	podName := fmt.Sprintf("redis-temp-%s-%d", username, rand.IntN(10000))
 
 	fmt.Printf("\nConnecting to Redis:\n")
 	fmt.Printf("  Environment: %s\n", env)
@@ -133,9 +133,4 @@ func (rm *RedisManager) runRedisPodWithStatus(podName, host, password string) er
 	}
 
 	return err
-}
-
-// runRedisPod spawns an interactive redis-cli pod (legacy method)
-func (rm *RedisManager) runRedisPod(podName, host, password string) error {
-	return rm.runRedisPodWithStatus(podName, host, password)
 }

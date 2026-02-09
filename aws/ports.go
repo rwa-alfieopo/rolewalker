@@ -3,7 +3,7 @@ package aws
 import (
 	"fmt"
 	"rolewalkers/internal/db"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -55,7 +55,7 @@ func (pc *PortConfig) GetServices() string {
 			for i, s := range services {
 				names[i] = s.Name
 			}
-			sort.Strings(names)
+			slices.Sort(names)
 			return strings.Join(names, ", ")
 		}
 	}
@@ -71,7 +71,7 @@ func (pc *PortConfig) GetEnvironments() string {
 			for i, e := range envs {
 				names[i] = e.Name
 			}
-			sort.Strings(names)
+			slices.Sort(names)
 			return strings.Join(names, ", ")
 		}
 	}
@@ -94,11 +94,11 @@ func (pc *PortConfig) ListAll() string {
 					if service.ServiceType == "grpc-microservice" {
 						continue // Skip microservices in main listing
 					}
-					sb.WriteString(fmt.Sprintf("\n%s:\n", strings.ToUpper(service.Name)))
+					fmt.Fprintf(&sb, "\n%s:\n", strings.ToUpper(service.Name))
 					for _, env := range envs {
 						pm, err := pc.configRepo.GetPortMapping(service.Name, env.Name)
 						if err == nil {
-							sb.WriteString(fmt.Sprintf("  %-8s %d\n", env.Name+":", pm.LocalPort))
+							fmt.Fprintf(&sb, "  %-8s %d\n", env.Name+":", pm.LocalPort)
 						}
 					}
 				}

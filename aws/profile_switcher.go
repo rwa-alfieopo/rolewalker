@@ -90,7 +90,9 @@ func (ps *ProfileSwitcher) setPersistentEnv(profileName, region string) error {
 		// Clear AWS_PROFILE from User environment so AWS CLI uses [default] from config
 		cmd := exec.Command("powershell", "-NoProfile", "-Command",
 			`[Environment]::SetEnvironmentVariable("AWS_PROFILE", $null, "User")`)
-		cmd.Run() // Non-fatal if this fails
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to clear AWS_PROFILE from user environment: %w", err)
+		}
 	}
 	return nil
 }
@@ -278,15 +280,15 @@ func (ps *ProfileSwitcher) GenerateShellExport(profileName string, shell string)
 	switch shell {
 	case "powershell", "pwsh":
 		for k, v := range env {
-			sb.WriteString(fmt.Sprintf("$env:%s = '%s'\n", k, v))
+			fmt.Fprintf(&sb, "$env:%s = '%s'\n", k, v)
 		}
 	case "cmd":
 		for k, v := range env {
-			sb.WriteString(fmt.Sprintf("set %s=%s\n", k, v))
+			fmt.Fprintf(&sb, "set %s=%s\n", k, v)
 		}
 	default: // bash, zsh, sh
 		for k, v := range env {
-			sb.WriteString(fmt.Sprintf("export %s='%s'\n", k, v))
+			fmt.Fprintf(&sb, "export %s='%s'\n", k, v)
 		}
 	}
 
@@ -302,15 +304,15 @@ func (ps *ProfileSwitcher) ClearEnvironment(shell string) string {
 	switch shell {
 	case "powershell", "pwsh":
 		for _, v := range vars {
-			sb.WriteString(fmt.Sprintf("Remove-Item Env:%s -ErrorAction SilentlyContinue\n", v))
+			fmt.Fprintf(&sb, "Remove-Item Env:%s -ErrorAction SilentlyContinue\n", v)
 		}
 	case "cmd":
 		for _, v := range vars {
-			sb.WriteString(fmt.Sprintf("set %s=\n", v))
+			fmt.Fprintf(&sb, "set %s=\n", v)
 		}
 	default:
 		for _, v := range vars {
-			sb.WriteString(fmt.Sprintf("unset %s\n", v))
+			fmt.Fprintf(&sb, "unset %s\n", v)
 		}
 	}
 

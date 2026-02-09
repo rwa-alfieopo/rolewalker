@@ -127,6 +127,7 @@ func (km *KubeManager) GetCurrentNamespace() string {
 
 	return namespace
 }
+
 // SetNamespace sets the namespace for the current kubectl context
 func (km *KubeManager) SetNamespace(namespace string) error {
 	if namespace == "" {
@@ -143,6 +144,7 @@ func (km *KubeManager) SetNamespace(namespace string) error {
 
 	return nil
 }
+
 // ListNamespaces returns all available namespaces in the current cluster
 func (km *KubeManager) ListNamespaces() ([]string, error) {
 	cmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
@@ -452,9 +454,9 @@ func (km *KubeManager) ListContextsFormatted() (string, error) {
 		if ctx.IsCurrent {
 			marker = "* "
 		}
-		sb.WriteString(fmt.Sprintf("%s%s\n", marker, ctx.Name))
+		fmt.Fprintf(&sb, "%s%s\n", marker, ctx.Name)
 		if ctx.Cluster != "" && ctx.Cluster != ctx.Name {
-			sb.WriteString(fmt.Sprintf("    Cluster: %s\n", ctx.Cluster))
+			fmt.Fprintf(&sb, "    Cluster: %s\n", ctx.Cluster)
 		}
 	}
 

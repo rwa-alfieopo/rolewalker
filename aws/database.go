@@ -95,6 +95,9 @@ func (dm *DatabaseManager) runPsqlPod(podName, endpoint, password string) error 
 	// Build labels with creator identity
 	labels := k8s.CreatorLabelsWithSession()
 
+	// NOTE: PGPASSWORD is passed via --env flag to kubectl run, which means it's visible
+	// in the local process list (ps aux). For production-grade security, consider using
+	// Kubernetes Secrets with --env-from instead. This is acceptable for a dev CLI tool.
 	cmd := exec.Command("kubectl", "run", podName,
 		"--rm", "-it",
 		"--restart=Never",
@@ -241,7 +244,7 @@ func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, conf
 		// Clean up partial file on error
 		outFile.Close()
 		os.Remove(config.OutputFile)
-		return fmt.Errorf("pg_dump failed: %s", stderr.String())
+		return fmt.Errorf("pg_dump failed: %w: %s", err, stderr.String())
 	}
 
 	// Get file size
@@ -359,7 +362,7 @@ func (dm *DatabaseManager) runPsqlRestorePod(podName, endpoint, password string,
 
 	err = cmd.Run()
 	if err != nil {
-		return fmt.Errorf("psql restore failed: %s\n%s", stderr.String(), stdout.String())
+		return fmt.Errorf("psql restore failed: %w: %s\n%s", err, stderr.String(), stdout.String())
 	}
 
 	fmt.Printf("\n✓ Restore completed successfully!\n")

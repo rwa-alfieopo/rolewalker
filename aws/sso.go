@@ -84,8 +84,8 @@ func (sm *SSOManager) Login(profileName string) error {
 	// Create command with proper OS-compatible execution
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		// On Windows, use cmd.exe to properly handle the AWS CLI
-		cmd = exec.CommandContext(ctx, "cmd", "/C", "aws", "sso", "login", "--profile", profileName)
+		// On Windows, cmd /C expects a single command string
+		cmd = exec.CommandContext(ctx, "cmd", "/C", fmt.Sprintf("aws sso login --profile %s", profileName))
 	} else {
 		// On Unix-like systems (Linux, macOS), execute directly
 		cmd = exec.CommandContext(ctx, "aws", "sso", "login", "--profile", profileName)
@@ -151,14 +151,12 @@ func (sm *SSOManager) Logout(profileName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Create command with proper OS-compatible execution
+	// aws sso logout does not accept --profile; it clears all cached SSO tokens.
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		// On Windows, use cmd.exe to properly handle the AWS CLI
-		cmd = exec.CommandContext(ctx, "cmd", "/C", "aws", "sso", "logout", "--profile", profileName)
+		cmd = exec.CommandContext(ctx, "cmd", "/C", "aws sso logout")
 	} else {
-		// On Unix-like systems (Linux, macOS), execute directly
-		cmd = exec.CommandContext(ctx, "aws", "sso", "logout", "--profile", profileName)
+		cmd = exec.CommandContext(ctx, "aws", "sso", "logout")
 	}
 
 	return cmd.Run()
@@ -255,10 +253,10 @@ func (sm *SSOManager) ValidateProfile(profileName string) error {
 	for _, p := range profiles {
 		if p.Name == profileName {
 			if p.IsSSO {
-				if p.SSOStartURL == "" {
-					return fmt.Errorf("missing sso_start_url")
+				if p.SSOStartURL == "" && p.SSOSession == "" {
+					return fmt.Errorf("missing sso_start_url or sso_session")
 				}
-				if p.SSORegion == "" {
+				if p.SSORegion == "" && p.SSOSession == "" {
 					return fmt.Errorf("missing sso_region")
 				}
 				if p.SSOAccountID == "" {

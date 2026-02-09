@@ -476,6 +476,14 @@ func (c *CLI) login(profileName string) error {
 	}
 
 	fmt.Printf("✓ Successfully logged in to: %s\n", profileName)
+
+	// After login, switch the default profile so bare AWS CLI commands
+	// (e.g. "aws s3 ls") use the authenticated profile's credentials.
+	if err := c.profileSwitcher.SwitchProfile(profileName); err != nil {
+		fmt.Printf("⚠ Logged in but could not set default profile: %v\n", err)
+		fmt.Printf("  Run 'rw switch %s' manually, or use --profile %s\n", profileName, profileName)
+	}
+
 	return nil
 }
 

@@ -43,7 +43,7 @@ func (km *KubeManager) GetContexts() ([]KubeContext, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to get kubectl contexts: %s", stderr.String())
+		return nil, fmt.Errorf("failed to get kubectl contexts: %w: %s", err, stderr.String())
 	}
 
 	output := strings.TrimSpace(out.String())
@@ -104,7 +104,7 @@ func (km *KubeManager) GetCurrentContext() (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to get current context: %s", stderr.String())
+		return "", fmt.Errorf("failed to get current context: %w: %s", err, stderr.String())
 	}
 
 	return strings.TrimSpace(out.String()), nil
@@ -138,7 +138,7 @@ func (km *KubeManager) SetNamespace(namespace string) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to set namespace: %s", stderr.String())
+		return fmt.Errorf("failed to set namespace: %w: %s", err, stderr.String())
 	}
 
 	return nil
@@ -152,7 +152,7 @@ func (km *KubeManager) ListNamespaces() ([]string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to list namespaces: %s", stderr.String())
+		return nil, fmt.Errorf("failed to list namespaces: %w: %s", err, stderr.String())
 	}
 
 	output := strings.TrimSpace(out.String())
@@ -177,7 +177,7 @@ func (km *KubeManager) SwitchContext(contextName string) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to switch context: %s", stderr.String())
+		return fmt.Errorf("failed to switch context: %w: %s", err, stderr.String())
 	}
 
 	return nil
@@ -242,7 +242,7 @@ func (km *KubeManager) UpdateKubeconfig(clusterName, region string) error {
 	cmd.Stderr = &stderr
 	
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to update kubeconfig: %s", stderr.String())
+		return fmt.Errorf("failed to update kubeconfig: %w: %s", err, stderr.String())
 	}
 	
 	return nil

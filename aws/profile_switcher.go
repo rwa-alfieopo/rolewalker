@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 )
@@ -64,6 +63,11 @@ func (ps *ProfileSwitcher) SwitchProfile(profileName string) error {
 		fmt.Printf("⚠ Could not set persistent environment: %v\n", err)
 	}
 
+	// Clear any explicit credential env vars that would override the profile
+	os.Unsetenv("AWS_ACCESS_KEY_ID")
+	os.Unsetenv("AWS_SECRET_ACCESS_KEY")
+	os.Unsetenv("AWS_SESSION_TOKEN")
+
 	// Auto-update AWS_PROFILE env var for current process and child processes
 	os.Setenv("AWS_PROFILE", profileName)
 	if targetProfile.Region != "" {
@@ -103,12 +107,11 @@ func (ps *ProfileSwitcher) updateDefaultProfile(profile *Profile) error {
 	var newLines []string
 	inDefault := false
 	defaultWritten := false
-	profileRegex := regexp.MustCompile(`^\[(?:profile\s+)?(.+)\]$`)
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		if matches := profileRegex.FindStringSubmatch(trimmed); matches != nil {
+		if matches := configProfileRegex.FindStringSubmatch(trimmed); matches != nil {
 			if inDefault {
 				// We were in default section, now entering new section
 				inDefault = false
@@ -156,8 +159,14 @@ func (ps *ProfileSwitcher) formatProfileSettings(profile *Profile) []string {
 		lines = append(lines, fmt.Sprintf("output = %s", profile.Output))
 	}
 	if profile.IsSSO {
-		lines = append(lines, fmt.Sprintf("sso_start_url = %s", profile.SSOStartURL))
-		lines = append(lines, fmt.Sprintf("sso_region = %s", profile.SSORegion))
+		if profile.SSOSession != "" {
+			lines = append(lines, fmt.Sprintf("sso_session = %s", profile.SSOSession))
+		} else if profile.SSOStartURL != "" {
+			lines = append(lines, fmt.Sprintf("sso_start_url = %s", profile.SSOStartURL))
+			if profile.SSORegion != "" {
+				lines = append(lines, fmt.Sprintf("sso_region = %s", profile.SSORegion))
+			}
+		}
 		lines = append(lines, fmt.Sprintf("sso_account_id = %s", profile.SSOAccountID))
 		lines = append(lines, fmt.Sprintf("sso_role_name = %s", profile.SSORoleName))
 	}
@@ -207,12 +216,11 @@ func (ps *ProfileSwitcher) GetDefaultRegion() string {
 
 	scanner := bufio.NewScanner(file)
 	inDefault := false
-	profileRegex := regexp.MustCompile(`^\[(?:profile\s+)?(.+)\]$`)
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
-		if matches := profileRegex.FindStringSubmatch(line); matches != nil {
+		if matches := configProfileRegex.FindStringSubmatch(line); matches != nil {
 			inDefault = matches[1] == "default"
 			continue
 		}

@@ -46,8 +46,11 @@ func NewTunnelState() (*TunnelState, error) {
 		filePath: filepath.Join(stateDir, "tunnels.json"),
 	}
 
-	// Load existing state
-	ts.load()
+	// Load existing state (safe: load() acquires its own lock)
+	if err := ts.load(); err != nil {
+		// Non-fatal: start with empty state if load fails
+		ts.Tunnels = make(map[string]*TunnelInfo)
+	}
 
 	return ts, nil
 }

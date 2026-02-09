@@ -13,6 +13,7 @@ import (
 // Profile represents an AWS profile configuration
 type Profile struct {
 	Name         string `json:"name"`
+	SSOSession   string `json:"ssoSession,omitempty"`
 	SSOStartURL  string `json:"ssoStartUrl,omitempty"`
 	SSORegion    string `json:"ssoRegion,omitempty"`
 	SSOAccountID string `json:"ssoAccountId,omitempty"`
@@ -22,6 +23,18 @@ type Profile struct {
 	IsSSO        bool   `json:"isSso"`
 	IsActive     bool   `json:"isActive"`
 }
+
+// ssoSessionConfig holds settings from an [sso-session ...] block
+type ssoSessionConfig struct {
+	StartURL string
+	Region   string
+}
+
+// Package-level compiled regexes for config parsing (avoids recompilation per call)
+var (
+	configProfileRegex    = regexp.MustCompile(`^\[(?:profile\s+)?(.+)\]$`)
+	configSSOSessionRegex = regexp.MustCompile(`^\[sso-session\s+(.+)\]$`)
+)
 
 // ConfigManager handles AWS config file operations
 type ConfigManager struct {
@@ -85,9 +98,11 @@ func (cm *ConfigManager) parseConfigFile(profiles map[string]*Profile) error {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	profileRegex := regexp.MustCompile(`^\[(?:profile\s+)?(.+)\]$`)
+
+	ssoSessions := make(map[string]*ssoSessionConfig)
 
 	var currentProfile *Profile
+	var currentSession *ssoSessionConfig
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -96,7 +111,16 @@ func (cm *ConfigManager) parseConfigFile(profiles map[string]*Profile) error {
 			continue
 		}
 
-		if matches := profileRegex.FindStringSubmatch(line); matches != nil {
+		// Check for [sso-session <name>] sections
+		if matches := configSSOSessionRegex.FindStringSubmatch(line); matches != nil {
+			currentProfile = nil
+			currentSession = &ssoSessionConfig{}
+			ssoSessions[matches[1]] = currentSession
+			continue
+		}
+
+		if matches := configProfileRegex.FindStringSubmatch(line); matches != nil {
+			currentSession = nil
 			name := matches[1]
 			if name == "default" {
 				currentProfile = &Profile{Name: "default"}
@@ -107,6 +131,19 @@ func (cm *ConfigManager) parseConfigFile(profiles map[string]*Profile) error {
 			continue
 		}
 
+		if currentSession != nil && strings.Contains(line, "=") {
+			parts := strings.SplitN(line, "=", 2)
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+
+			switch key {
+			case "sso_start_url":
+				currentSession.StartURL = value
+			case "sso_region":
+				currentSession.Region = value
+			}
+		}
+
 		if currentProfile != nil && strings.Contains(line, "=") {
 			parts := strings.SplitN(line, "=", 2)
 			key := strings.TrimSpace(parts[0])
@@ -115,6 +152,9 @@ func (cm *ConfigManager) parseConfigFile(profiles map[string]*Profile) error {
 			switch key {
 			case "sso_start_url":
 				currentProfile.SSOStartURL = value
+				currentProfile.IsSSO = true
+			case "sso_session":
+				currentProfile.SSOSession = value
 				currentProfile.IsSSO = true
 			case "sso_region":
 				currentProfile.SSORegion = value
@@ -130,5 +170,23 @@ func (cm *ConfigManager) parseConfigFile(profiles map[string]*Profile) error {
 		}
 	}
 
-	return scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	// Resolve sso_session references: inherit start_url and region from the session block
+	for _, p := range profiles {
+		if p.SSOSession != "" {
+			if sess, ok := ssoSessions[p.SSOSession]; ok {
+				if p.SSOStartURL == "" {
+					p.SSOStartURL = sess.StartURL
+				}
+				if p.SSORegion == "" {
+					p.SSORegion = sess.Region
+				}
+			}
+		}
+	}
+
+	return nil
 }

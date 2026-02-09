@@ -69,6 +69,11 @@ func (rs *RoleSwitcher) SwitchRole(profileName string) error {
 		return fmt.Errorf("failed to write active role file: %w", err)
 	}
 
+	// Clear any explicit credential env vars that would override the profile
+	os.Unsetenv("AWS_ACCESS_KEY_ID")
+	os.Unsetenv("AWS_SECRET_ACCESS_KEY")
+	os.Unsetenv("AWS_SESSION_TOKEN")
+
 	// Auto-update AWS_PROFILE env var for current process and child processes
 	os.Setenv("AWS_PROFILE", profileName)
 	if role.Region != "" {

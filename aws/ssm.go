@@ -49,12 +49,16 @@ func (sm *SSMManager) GetParameter(name string) (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("failed to get SSM parameter %s: %s", name, stderr.String())
+		return "", fmt.Errorf("failed to get SSM parameter %s: %w: %s", name, err, stderr.String())
 	}
 
 	var resp ssmResponse
 	if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
 		return "", fmt.Errorf("failed to parse SSM response: %w", err)
+	}
+
+	if resp.Parameter.Value == "" {
+		return "", fmt.Errorf("SSM parameter %s exists but has empty value", name)
 	}
 
 	return resp.Parameter.Value, nil
@@ -139,7 +143,7 @@ func (sm *SSMManager) ListParameters(prefix string) ([]string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to list SSM parameters at %s: %s", prefix, stderr.String())
+		return nil, fmt.Errorf("failed to list SSM parameters at %s: %w: %s", prefix, err, stderr.String())
 	}
 
 	var resp ssmListResponse

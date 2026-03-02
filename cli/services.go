@@ -5,41 +5,61 @@ import (
 )
 
 func (c *CLI) grpc(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: rw grpc <service> <env>\n       rw grpc list\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage",
-			c.grpcManager.GetServices())
-	}
-
-	if args[0] == "list" || args[0] == "ls" {
+	if len(args) >= 1 && (args[0] == "list" || args[0] == "ls") {
 		fmt.Print(c.grpcManager.ListServices())
 		return nil
 	}
 
-	if len(args) < 2 {
-		return fmt.Errorf("usage: rw grpc <service> <env>\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage",
-			c.grpcManager.GetServices())
+	service := ""
+	env := ""
+
+	if len(args) >= 2 {
+		service = args[0]
+		env = args[1]
+	} else {
+		// Interactive picker for missing arguments
+		if len(args) >= 1 {
+			service = args[0]
+		} else {
+			picked, err := c.pickService(true)
+			if err != nil {
+				return err
+			}
+			service = picked
+		}
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		env = picked
 	}
 
-	return c.grpcManager.Forward(args[0], args[1])
+	return c.grpcManager.Forward(service, env)
 }
 
 func (c *CLI) redis(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: rw redis connect <env>\n\nSubcommands:\n  connect <env>  Connect to Redis cluster via interactive redis-cli\n\nExamples:\n  rw redis connect dev   # Connect to dev Redis cluster\n  rw redis connect prod  # Connect to prod Redis cluster")
-	}
-
-	subCmd := args[0]
-	subArgs := args[1:]
-
-	switch subCmd {
-	case "connect":
-		if len(subArgs) < 1 {
-			return fmt.Errorf("usage: rw redis connect <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+	if len(args) >= 1 && args[0] == "connect" {
+		if len(args) >= 2 {
+			return c.redisManager.Connect(args[1])
 		}
-		return c.redisManager.Connect(subArgs[0])
-	default:
-		return fmt.Errorf("unknown redis subcommand: %s\nUse: connect", subCmd)
+		// Interactive environment picker
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		return c.redisManager.Connect(picked)
 	}
+
+	if len(args) < 1 {
+		// No args at all — default to connect with picker
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		return c.redisManager.Connect(picked)
+	}
+
+	return fmt.Errorf("unknown redis subcommand: %s\nUse: connect", args[0])
 }
 
 func (c *CLI) msk(args []string) error {

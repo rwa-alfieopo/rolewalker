@@ -34,7 +34,9 @@ func TestTunnelStateSerialization(t *testing.T) {
 	statePath := filepath.Join(tmpDir, "tunnels.json")
 
 	ts := &TunnelState{
-		Tunnels:  make(map[string]*TunnelInfo),
+		tunnelStateData: tunnelStateData{
+			Tunnels: make(map[string]*TunnelInfo),
+		},
 		filePath: statePath,
 	}
 
@@ -60,7 +62,7 @@ func TestTunnelStateSerialization(t *testing.T) {
 		t.Fatalf("Failed to read state file: %v", err)
 	}
 
-	var loaded TunnelState
+	var loaded tunnelStateData
 	if err := json.Unmarshal(data, &loaded); err != nil {
 		t.Fatalf("Failed to unmarshal state: %v", err)
 	}

@@ -48,6 +48,9 @@ func NewCLI() (*CLI, error) {
 	database, err = db.NewDB()
 	if err == nil {
 		dbRepo = db.NewConfigRepository(database)
+	} else {
+		fmt.Fprintf(os.Stderr, "⚠ Database initialization failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "  Some features may be unavailable. Run 'rw config status' for details.\n")
 	}
 
 	// Create shared managers with injected dependencies
@@ -188,33 +191,75 @@ func (c *CLI) Run(args []string) error {
 }
 
 // switchCmd wraps the switch command with argument validation.
+// If no profile name is given, shows an interactive picker.
+// Supports partial profile name matching (e.g. "dev" matches "zenith-dev").
 func (c *CLI) switchCmd(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: rw switch <profile-name> [--no-kube]")
-	}
 	fs := ParseFlags(args)
+	skipKube := fs.Bool("no-kube") || fs.Bool("skip-kube")
+
 	profileName := fs.Arg(0)
 	if profileName == "" {
-		return fmt.Errorf("usage: rw switch <profile-name> [--no-kube]")
+		// Interactive picker
+		picked, err := c.pickProfile(false)
+		if err != nil {
+			return err
+		}
+		profileName = picked
+	} else {
+		// Resolve partial name
+		resolved, err := c.resolveProfileName(profileName)
+		if err != nil {
+			return err
+		}
+		profileName = resolved
 	}
-	skipKube := fs.Bool("no-kube") || fs.Bool("skip-kube")
+
 	return c.switchProfile(profileName, skipKube)
 }
 
 // loginCmd wraps the login command with argument validation.
+// If no profile name is given, shows an interactive picker (SSO profiles only).
+// Supports partial profile name matching.
 func (c *CLI) loginCmd(args []string) error {
+	var profileName string
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rw login <profile-name>")
+		// Interactive picker — SSO profiles only
+		picked, err := c.pickProfile(true)
+		if err != nil {
+			return err
+		}
+		profileName = picked
+	} else {
+		resolved, err := c.resolveProfileName(args[0])
+		if err != nil {
+			return err
+		}
+		profileName = resolved
 	}
-	return c.login(args[0])
+
+	return c.login(profileName)
 }
 
 // logoutCmd wraps the logout command with argument validation.
+// Supports partial profile name matching.
 func (c *CLI) logoutCmd(args []string) error {
+	var profileName string
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rw logout <profile-name>")
+		// Interactive picker — SSO profiles only
+		picked, err := c.pickProfile(true)
+		if err != nil {
+			return err
+		}
+		profileName = picked
+	} else {
+		resolved, err := c.resolveProfileName(args[0])
+		if err != nil {
+			return err
+		}
+		profileName = resolved
 	}
-	return c.logout(args[0])
+
+	return c.logout(profileName)
 }
 
 // extractAccountName extracts a friendly account name from the profile name

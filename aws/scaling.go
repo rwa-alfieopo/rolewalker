@@ -113,6 +113,13 @@ func (sm *ScalingManager) Scale(env, presetName string) error {
 		return fmt.Errorf("invalid environment: %s (valid: %s)", env, strings.Join(sm.ValidEnvironments(), ", "))
 	}
 
+	if preset.Min < 0 || preset.Max < 0 {
+		return fmt.Errorf("preset min and max must be non-negative (got min=%d, max=%d)", preset.Min, preset.Max)
+	}
+	if preset.Min > preset.Max {
+		return fmt.Errorf("preset min (%d) cannot be greater than max (%d)", preset.Min, preset.Max)
+	}
+
 	// Switch to correct kubectl context
 	if err := sm.kubeManager.SwitchContextForEnvWithProfile(env, sm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)

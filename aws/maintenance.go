@@ -251,6 +251,10 @@ func (mm *MaintenanceManager) findServiceName(env, serviceType string) (string, 
 		return "", err
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Fastly API error listing services (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
 	var services []fastlyService
 	if err := json.Unmarshal(body, &services); err != nil {
 		return "", err
@@ -288,6 +292,10 @@ func (mm *MaintenanceManager) getServiceID(serviceName string) (string, error) {
 		return "", err
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Fastly API error searching service %q (HTTP %d): %s", serviceName, resp.StatusCode, string(body))
+	}
+
 	var svc fastlyService
 	if err := json.Unmarshal(body, &svc); err != nil {
 		return "", err
@@ -312,6 +320,10 @@ func (mm *MaintenanceManager) getActiveVersion(serviceID string) (int, error) {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB max
 	if err != nil {
 		return 0, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("Fastly API error getting service detail (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
 	var detail fastlyServiceDetail
@@ -344,6 +356,10 @@ func (mm *MaintenanceManager) getDictionaryID(serviceID string, version int) (st
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB max
 	if err != nil {
 		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Fastly API error getting dictionary (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
 	var dict fastlyDictionary
@@ -399,6 +415,10 @@ func (mm *MaintenanceManager) getMaintenanceModeValue(serviceID, dictionaryID st
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024)) // 10MB max
 	if err != nil {
 		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("Fastly API error getting maintenance mode value (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
 	var item fastlyDictionaryItem

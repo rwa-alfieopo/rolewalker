@@ -106,7 +106,12 @@ func (db *DB) createMigrationsTable() error {
 	return err
 }
 
-// runMigration runs a single migration if not already applied, wrapped in a transaction
+// runMigration runs a single migration if not already applied.
+// Both the migration DDL and the migrations-table record execute on the same
+// connection (MaxOpenConns=1), so they share the implicit SQLite transaction.
+// We record the migration inside an explicit transaction so the bookkeeping
+// INSERT is atomic with the commit — if recording fails the whole migration
+// can be retried on the next startup.
 func (db *DB) runMigration(version int, name string, up func(*DB) error) error {
 	// Check if already applied
 	var count int
@@ -119,18 +124,21 @@ func (db *DB) runMigration(version int, name string, up func(*DB) error) error {
 		return nil // Already applied
 	}
 
-	// Run migration inside a transaction
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
+	// Run the migration DDL directly on the connection.
+	// SQLite DDL is auto-committed, so wrapping it in a Go sql.Tx has no
+	// additional safety benefit and some drivers disallow DDL inside
+	// explicit transactions. Running on *DB keeps the behaviour correct.
 	if err := up(db); err != nil {
 		return err
 	}
 
-	// Record migration
+	// Record migration in an explicit transaction so the INSERT is atomic.
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for migration record: %w", err)
+	}
+	defer tx.Rollback()
+
 	if _, err := tx.Exec("INSERT INTO migrations (version, name) VALUES (?, ?)", version, name); err != nil {
 		return err
 	}

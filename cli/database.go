@@ -28,10 +28,6 @@ func (c *CLI) db(args []string) error {
 }
 
 func (c *CLI) dbConnect(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: rw db connect <env> [--write] [--command]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
-	}
-
 	config := aws.DatabaseConfig{
 		NodeType: "read",
 		DBType:   "query",
@@ -51,7 +47,12 @@ func (c *CLI) dbConnect(args []string) error {
 	}
 
 	if config.Environment == "" {
-		return fmt.Errorf("environment is required\n\nUsage: rw db connect <env> [--write] [--command]")
+		// Interactive environment picker
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		config.Environment = picked
 	}
 
 	return c.dbManager.Connect(config)

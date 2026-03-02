@@ -84,6 +84,9 @@ func (tm *TunnelManager) Start(config TunnelConfig) error {
 	if err != nil {
 		return fmt.Errorf("failed to get local port: %w", err)
 	}
+	if len(localPorts) == 0 {
+		return fmt.Errorf("no port mapping found for service %s in environment %s", service, env)
+	}
 	localPort := localPorts[0] // Use first port
 
 	// Get remote port

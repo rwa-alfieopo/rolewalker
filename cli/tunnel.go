@@ -29,12 +29,29 @@ func (c *CLI) tunnel(args []string) error {
 }
 
 func (c *CLI) tunnelStart(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: rw tunnel start <service> <env>\n\nServices: %s\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage", c.tunnelManager.GetSupportedServices())
-	}
+	service := ""
+	env := ""
 
-	service := args[0]
-	env := args[1]
+	if len(args) >= 2 {
+		service = args[0]
+		env = args[1]
+	} else {
+		// Interactive picker for missing arguments
+		if len(args) >= 1 {
+			service = args[0]
+		} else {
+			picked, err := c.pickService(false)
+			if err != nil {
+				return err
+			}
+			service = picked
+		}
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		env = picked
+	}
 
 	config := aws.TunnelConfig{
 		Service:     service,
@@ -61,7 +78,12 @@ func (c *CLI) tunnelStop(args []string) error {
 	}
 
 	if len(args) < 2 {
-		return fmt.Errorf("usage: rw tunnel stop <service> <env>\n       rw tunnel stop --all")
+		// Interactive: pick from active tunnels
+		picked, err := c.pickActiveTunnel()
+		if err != nil {
+			return err
+		}
+		return c.tunnelManager.Stop(picked.Service, picked.Environment)
 	}
 
 	service := args[0]

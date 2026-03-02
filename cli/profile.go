@@ -6,6 +6,9 @@ import (
 	"os"
 	"runtime"
 	"strings"
+
+	"rolewalkers/aws"
+	"rolewalkers/internal/utils"
 )
 
 func (c *CLI) listProfiles() error {
@@ -50,11 +53,95 @@ func (c *CLI) listProfiles() error {
 	return nil
 }
 
-func (c *CLI) switchProfile(profileName string, skipKube bool) error {
-	if err := c.profileSwitcher.SwitchProfile(profileName); err != nil {
-		return err
+// resolveProfileName finds a profile by exact name or partial match.
+// If multiple profiles match the partial input, it returns an error listing them.
+func (c *CLI) resolveProfileName(input string) (string, error) {
+	profiles, err := c.configManager.GetProfiles()
+	if err != nil {
+		return "", err
 	}
 
+	// Exact match first
+	for _, p := range profiles {
+		if p.Name == input {
+			return p.Name, nil
+		}
+	}
+
+	// Partial/substring match (case-insensitive)
+	inputLower := strings.ToLower(input)
+	var matches []aws.Profile
+	for _, p := range profiles {
+		if strings.Contains(strings.ToLower(p.Name), inputLower) {
+			matches = append(matches, p)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", fmt.Errorf("no profile matching '%s' found\nRun 'rw list' to see available profiles", input)
+	case 1:
+		return matches[0].Name, nil
+	default:
+		names := make([]string, len(matches))
+		for i, m := range matches {
+			names[i] = m.Name
+		}
+		return "", fmt.Errorf("'%s' matches multiple profiles: %s\nBe more specific or run 'rw switch' to pick interactively", input, strings.Join(names, ", "))
+	}
+}
+
+// pickProfile shows an interactive profile picker and returns the selected profile name.
+func (c *CLI) pickProfile(ssoOnly bool) (string, error) {
+	profiles, err := c.configManager.GetProfiles()
+	if err != nil {
+		return "", err
+	}
+
+	var items []string
+	var labels []string
+	for _, p := range profiles {
+		if ssoOnly && !p.IsSSO {
+			continue
+		}
+		label := p.Name
+		if p.IsActive {
+			label += " [ACTIVE]"
+		}
+		if p.IsSSO && p.SSOAccountID != "" {
+			label += fmt.Sprintf("  (%s / %s)", p.SSOAccountID, p.SSORoleName)
+		}
+		if p.Region != "" {
+			label += fmt.Sprintf("  %s", p.Region)
+		}
+		items = append(items, p.Name)
+		labels = append(labels, label)
+	}
+
+	if len(items) == 0 {
+		if ssoOnly {
+			return "", fmt.Errorf("no SSO profiles found")
+		}
+		return "", fmt.Errorf("no profiles found")
+	}
+
+	selected, ok := utils.SelectFromList("Select a profile:", labels)
+	if !ok {
+		return "", fmt.Errorf("selection cancelled")
+	}
+
+	// Map the label back to the profile name
+	for i, l := range labels {
+		if l == selected {
+			return items[i], nil
+		}
+	}
+
+	return "", fmt.Errorf("unexpected selection error")
+}
+
+// postSwitch runs the shared post-switch steps: kube context switch + context display.
+func (c *CLI) postSwitch(profileName string, skipKube bool) {
 	if !skipKube {
 		if err := c.kubeManager.SwitchContextForEnv(profileName); err != nil {
 			fmt.Printf("⚠ Failed to switch kubectl context: %v\n", err)
@@ -79,7 +166,14 @@ func (c *CLI) switchProfile(profileName string, skipKube bool) error {
 		}
 		fmt.Println("  (New terminals will work automatically)")
 	}
+}
 
+func (c *CLI) switchProfile(profileName string, skipKube bool) error {
+	if err := c.profileSwitcher.SwitchProfile(profileName); err != nil {
+		return err
+	}
+
+	c.postSwitch(profileName, skipKube)
 	return nil
 }
 
@@ -96,8 +190,10 @@ func (c *CLI) login(profileName string) error {
 	if err := c.profileSwitcher.SwitchProfile(profileName); err != nil {
 		fmt.Printf("⚠ Logged in but could not set default profile: %v\n", err)
 		fmt.Printf("  Run 'rw switch %s' manually, or use --profile %s\n", profileName, profileName)
+		return nil
 	}
 
+	c.postSwitch(profileName, false)
 	return nil
 }
 

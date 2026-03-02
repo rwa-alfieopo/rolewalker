@@ -12,11 +12,14 @@ Usage: rw <command> [arguments]
 
 Profile Management:
   list, ls, l             List all AWS profiles
-  switch, use, s <profile>
+  switch, use, s [profile]
                           Switch to a profile (updates default + kubectl context)
+                          No args: interactive picker. Supports partial names.
     --no-kube               Skip kubectl context switch
-  login, li <profile>     SSO login for a profile
-  logout, lo <profile>    SSO logout for a profile
+  login, li [profile]     SSO login for a profile
+                          No args: interactive picker (SSO profiles only)
+  logout, lo [profile]    SSO logout for a profile
+                          No args: interactive picker (SSO profiles only)
   status, st              Show login status for all SSO profiles
   current, c              Show current active profile
   context, ctx [--format] Show compact context (profile, account, eks, namespace)
@@ -121,9 +124,12 @@ func (c *CLI) example() error {
 	examples := []string{
 		"# Profile Management",
 		"rw list                          # List all available AWS profiles",
-		"rw switch dev                    # Switch to dev profile",
+		"rw switch                        # Interactive profile picker",
+		"rw switch dev                    # Switch to profile matching 'dev'",
 		"rw switch prod --no-kube         # Switch to prod without kubectl context",
-		"rw login staging                 # Login to staging profile",
+		"rw login                         # Interactive SSO login picker",
+		"rw login staging                 # Login to profile matching 'staging'",
+		"rw logout                        # Interactive SSO logout picker",
 		"rw status                        # Show status of all profiles",
 		"rw current                       # Show current active profile",
 		"rw context                       # Show compact context info",

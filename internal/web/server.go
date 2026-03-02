@@ -123,7 +123,7 @@ func (s *Server) Start() error {
 
 	s.logger.Info("Starting web server", "address", addr)
 	s.logger.Info("API auth token", "token", s.authToken)
-	s.openBrowser(fmt.Sprintf("http://%s?token=%s", addr, s.authToken))
+	s.openBrowser(fmt.Sprintf("http://%s/auth?token=%s", addr, s.authToken))
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
@@ -138,6 +138,11 @@ func (s *Server) api(h http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) registerRoutes(mux *http.ServeMux) {
+	// Token exchange: converts the one-time query-param token into an
+	// HttpOnly cookie and redirects to "/", keeping the token out of
+	// browser history and referrer headers.
+	mux.HandleFunc("GET /auth", s.handleTokenExchange)
+
 	mux.HandleFunc("GET /api/accounts", s.api(s.handleGetAccounts))
 	mux.HandleFunc("POST /api/accounts", s.api(s.handleAddAccount))
 	mux.HandleFunc("GET /api/accounts/{id}/roles", s.api(s.handleGetRoles))
@@ -564,6 +569,27 @@ func (s *Server) getWebDir() (http.FileSystem, bool) {
 	}
 	return http.FS(embedded), true
 }
+
+// handleTokenExchange validates the one-time query-param token, sets an
+// HttpOnly cookie, and redirects to "/" so the token never stays in the
+// browser address bar, history, or referrer headers.
+func (s *Server) handleTokenExchange(w http.ResponseWriter, r *http.Request) {
+	t := r.URL.Query().Get("token")
+	if t != s.authToken {
+		s.writeError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth_token",
+		Value:    t,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	})
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
 
 func (s *Server) openBrowser(url string) {
 	var cmd *exec.Cmd

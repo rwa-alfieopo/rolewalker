@@ -23,9 +23,16 @@ type TunnelInfo struct {
 	PID         int       `json:"pid,omitempty"` // port-forward process ID
 }
 
+// tunnelStateData is the JSON-serialisable subset of TunnelState.
+// Keeping it separate avoids marshalling the sync.RWMutex and prevents
+// json.Unmarshal from overwriting the mutex with a zero value.
+type tunnelStateData struct {
+	Tunnels map[string]*TunnelInfo `json:"tunnels"`
+}
+
 // TunnelState manages the state of active tunnels
 type TunnelState struct {
-	Tunnels  map[string]*TunnelInfo `json:"tunnels"`
+	tunnelStateData
 	filePath string
 	mu       sync.RWMutex
 }
@@ -43,7 +50,9 @@ func NewTunnelState() (*TunnelState, error) {
 	}
 
 	ts := &TunnelState{
-		Tunnels:  make(map[string]*TunnelInfo),
+		tunnelStateData: tunnelStateData{
+			Tunnels: make(map[string]*TunnelInfo),
+		},
 		filePath: filepath.Join(stateDir, "tunnels.json"),
 	}
 
@@ -69,12 +78,15 @@ func (ts *TunnelState) load() error {
 		return err
 	}
 
-	return json.Unmarshal(data, ts)
+	// Unmarshal into the embedded data struct only — never into *TunnelState
+	// directly, which would overwrite the mutex with a zero value.
+	return json.Unmarshal(data, &ts.tunnelStateData)
 }
 
 // save writes the state to disk with file locking for cross-process safety
 func (ts *TunnelState) save() error {
-	data, err := json.MarshalIndent(ts, "", "  ")
+	// Marshal only the data portion, not the mutex.
+	data, err := json.MarshalIndent(&ts.tunnelStateData, "", "  ")
 	if err != nil {
 		return err
 	}

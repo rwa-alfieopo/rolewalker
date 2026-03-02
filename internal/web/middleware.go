@@ -41,13 +41,18 @@ func RecoveryMiddleware(logger *slog.Logger) func(http.HandlerFunc) http.Handler
 	}
 }
 
-// BearerAuth validates the bearer token or query param token for API requests.
+// BearerAuth validates the bearer token, query param token, or auth cookie for API requests.
 func BearerAuth(token string, writeErr func(http.ResponseWriter, int, string)) func(http.HandlerFunc) http.HandlerFunc {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			t := ""
 			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
 				t = strings.TrimPrefix(auth, "Bearer ")
+			}
+			if t == "" {
+				if c, err := r.Cookie("auth_token"); err == nil {
+					t = c.Value
+				}
 			}
 			if t == "" {
 				t = r.URL.Query().Get("token")

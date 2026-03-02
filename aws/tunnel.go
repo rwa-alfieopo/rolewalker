@@ -48,7 +48,7 @@ func NewTunnelManagerWithDeps(km *KubeManager, ssm *SSMManager, ps *ProfileSwitc
 	return &TunnelManager{
 		kubeManager:     km,
 		ssmManager:      ssm,
-		portConfig:      NewPortConfig(),
+		portConfig:      NewPortConfigWithRepo(repo),
 		state:           state,
 		profileSwitcher: ps,
 		configRepo:      repo,

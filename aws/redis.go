@@ -1,13 +1,8 @@
 package aws
 
 import (
-	"errors"
 	"fmt"
-	"math/rand/v2"
-	"os"
-	"os/exec"
 	"rolewalkers/internal/k8s"
-	"rolewalkers/internal/utils"
 	"strconv"
 	"strings"
 )
@@ -17,15 +12,6 @@ type RedisManager struct {
 	kubeManager     *KubeManager
 	ssmManager      *SSMManager
 	profileSwitcher *ProfileSwitcher
-}
-
-// NewRedisManager creates a new RedisManager instance
-func NewRedisManager() *RedisManager {
-	return &RedisManager{
-		kubeManager:     NewKubeManager(),
-		ssmManager:      NewSSMManager(),
-		profileSwitcher: nil,
-	}
 }
 
 // NewRedisManagerWithDeps creates a new RedisManager with shared dependencies
@@ -66,22 +52,14 @@ func (rm *RedisManager) Connect(env string) error {
 	// Parse endpoint to extract host (remove port if present)
 	host := parseRedisHost(endpoint)
 
-	// Generate unique pod name
-	username := utils.GetCurrentUsernamePodSafe()
-	if username == "unknown" {
-		username = "user"
-	}
-	podName := fmt.Sprintf("redis-temp-%s-%d", username, rand.IntN(10000))
-
 	fmt.Printf("\nConnecting to Redis:\n")
 	fmt.Printf("  Environment: %s\n", env)
 	fmt.Printf("  Host:        %s\n", host)
 	fmt.Printf("  Port:        6379\n")
 	fmt.Printf("  User:        zenithmaster\n")
-	fmt.Printf("  Pod:         %s\n", podName)
 	fmt.Println()
 
-	return rm.runRedisPodWithStatus(podName, host, password)
+	return rm.runRedisPod(host, password)
 }
 
 // parseRedisHost extracts the host from an endpoint (removes port if present)
@@ -97,47 +75,21 @@ func parseRedisHost(endpoint string) string {
 	return endpoint
 }
 
-// runRedisPodWithStatus spawns an interactive redis-cli pod and shows status updates
-func (rm *RedisManager) runRedisPodWithStatus(podName, host, password string) error {
-	// Build labels with creator identity
-	labels := k8s.CreatorLabelsWithSession()
-
+// runRedisPod spawns an interactive redis-cli pod
+func (rm *RedisManager) runRedisPod(host, password string) error {
 	fmt.Println("Creating Redis CLI pod...")
 	fmt.Println("Status: Pulling image redis:7-alpine...")
-	
-	// Pass REDISCLI_AUTH via pod spec override to avoid exposing it in the process list
-	overrides := fmt.Sprintf(`{"spec":{"containers":[{"name":"%s","image":"redis:7-alpine","stdin":true,"tty":true,"command":["redis-cli","-h","%s","-p","6379","-c","--tls","--user","zenithmaster"],"env":[{"name":"REDISCLI_AUTH","value":"%s"}]}]}}`, podName, host, password)
-
-	cmd := exec.Command("kubectl", "run", podName,
-		"--rm", "-it",
-		"--restart=Never",
-		"--namespace="+TunnelAccessNamespace,
-		"--image=redis:7-alpine",
-		"--labels", labels,
-		"--overrides", overrides,
-		"--override-type=strategic",
-	)
-
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
 	fmt.Println("Status: Starting container...")
 	fmt.Println("Status: Connecting to Redis cluster...")
 	fmt.Println("\nStarting interactive redis-cli session (cluster mode)...")
 	fmt.Println("(Type 'quit' or Ctrl+D to exit)")
 	fmt.Println()
 
-	err := cmd.Run()
-	if err != nil {
-		// Check if it's just the user exiting normally
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			if exitErr.ExitCode() == 0 {
-				return nil
-			}
-		}
-	}
-
-	return err
+	return k8s.RunPod(k8s.PodSpec{
+		NamePrefix:  "redis-temp",
+		Image:       "redis:7-alpine",
+		Interactive: true,
+		Command:     []string{"redis-cli", "-h", host, "-p", "6379", "-c", "--tls", "--user", "zenithmaster"},
+		Env:         map[string]string{"REDISCLI_AUTH": password},
+	})
 }

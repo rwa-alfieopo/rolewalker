@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -42,13 +41,14 @@ func (ps *ProfileSwitcher) SwitchProfile(profileName string) error {
 		return fmt.Errorf("profile '%s' not found", profileName)
 	}
 
-	// Update the default profile in config
-	if err := ps.updateDefaultProfile(targetProfile); err != nil {
+	// Update the [default] section in config using shared helper
+	settings := ProfileSettings{Lines: ps.formatProfileSettings(targetProfile)}
+	if err := writeDefaultSection(ps.configManager.configPath, settings); err != nil {
 		return err
 	}
 
-	// Also set environment variable hint file for shell integration
-	if err := ps.writeActiveProfileFile(profileName); err != nil {
+	// Write unified active identity file
+	if err := writeActiveIdentityFile(profileName); err != nil {
 		return err
 	}
 
@@ -58,21 +58,9 @@ func (ps *ProfileSwitcher) SwitchProfile(profileName string) error {
 		fmt.Printf("⚠ Could not set persistent environment: %v\n", err)
 	}
 
-	// Clear any explicit credential env vars that would override the profile
-	os.Unsetenv("AWS_ACCESS_KEY_ID")
-	os.Unsetenv("AWS_SECRET_ACCESS_KEY")
-	os.Unsetenv("AWS_SESSION_TOKEN")
-
-	// Auto-update AWS_PROFILE env var for current process and child processes
-	os.Setenv("AWS_PROFILE", profileName)
-	if targetProfile.Region != "" {
-		os.Setenv("AWS_DEFAULT_REGION", targetProfile.Region)
-		os.Setenv("AWS_REGION", targetProfile.Region)
-	}
-
-	// Write env file for shell sourcing
-	if err := writeEnvFile(profileName, targetProfile.Region); err != nil {
-		return fmt.Errorf("failed to write env file: %w", err)
+	// Apply env vars and write env file using shared helper
+	if err := applyProfileEnv(profileName, targetProfile.Region); err != nil {
+		return fmt.Errorf("failed to apply environment: %w", err)
 	}
 
 	return nil
@@ -92,58 +80,7 @@ func (ps *ProfileSwitcher) setPersistentEnv(profileName, region string) error {
 	return nil
 }
 
-// updateDefaultProfile updates the [default] section in AWS config
-func (ps *ProfileSwitcher) updateDefaultProfile(profile *Profile) error {
-	// Read existing config
-	content, err := os.ReadFile(ps.configManager.configPath)
-	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read config: %w", err)
-	}
 
-	lines := strings.Split(string(content), "\n")
-	var newLines []string
-	inDefault := false
-	defaultWritten := false
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		if matches := configProfileRegex.FindStringSubmatch(trimmed); matches != nil {
-			if inDefault {
-				// We were in default section, now entering new section
-				inDefault = false
-			}
-			if matches[1] == "default" {
-				inDefault = true
-				defaultWritten = true
-				// Write new default section
-				newLines = append(newLines, "[default]")
-				newLines = append(newLines, ps.formatProfileSettings(profile)...)
-				continue
-			}
-		}
-
-		if inDefault {
-			// Skip old default settings
-			if strings.Contains(trimmed, "=") || trimmed == "" {
-				continue
-			}
-		}
-
-		newLines = append(newLines, line)
-	}
-
-	// If no default section existed, add it at the beginning
-	if !defaultWritten {
-		header := []string{"[default]"}
-		header = append(header, ps.formatProfileSettings(profile)...)
-		header = append(header, "")
-		newLines = append(header, newLines...)
-	}
-
-	// Write back
-	return os.WriteFile(ps.configManager.configPath, []byte(strings.Join(newLines, "\n")), 0600)
-}
 
 // formatProfileSettings returns config lines for a profile
 func (ps *ProfileSwitcher) formatProfileSettings(profile *Profile) []string {
@@ -171,37 +108,7 @@ func (ps *ProfileSwitcher) formatProfileSettings(profile *Profile) []string {
 	return lines
 }
 
-// writeActiveProfileFile writes the active profile name to a file
-func (ps *ProfileSwitcher) writeActiveProfileFile(profileName string) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
 
-	rwDir := filepath.Join(homeDir, ".rolewalkers")
-	if err := os.MkdirAll(rwDir, 0700); err != nil {
-		return err
-	}
-
-	activeFile := filepath.Join(rwDir, "active_profile")
-	return os.WriteFile(activeFile, []byte(profileName), 0600)
-}
-
-// GetActiveProfile returns the currently active profile name
-func (cm *ConfigManager) GetActiveProfile() string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "default"
-	}
-
-	activeFile := filepath.Join(homeDir, ".rolewalkers", "active_profile")
-	data, err := os.ReadFile(activeFile)
-	if err != nil {
-		return "default"
-	}
-
-	return strings.TrimSpace(string(data))
-}
 
 // GetDefaultRegion returns the region from the default profile
 func (ps *ProfileSwitcher) GetDefaultRegion() string {

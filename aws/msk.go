@@ -21,15 +21,6 @@ type MSKManager struct {
 	profileSwitcher *ProfileSwitcher
 }
 
-// NewMSKManager creates a new MSKManager instance
-func NewMSKManager() *MSKManager {
-	return &MSKManager{
-		kubeManager:     NewKubeManager(),
-		ssmManager:      NewSSMManager(),
-		profileSwitcher: nil,
-	}
-}
-
 // NewMSKManagerWithDeps creates a new MSKManager with shared dependencies
 func NewMSKManagerWithDeps(km *KubeManager, ssm *SSMManager, ps *ProfileSwitcher) *MSKManager {
 	return &MSKManager{

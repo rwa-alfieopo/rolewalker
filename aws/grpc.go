@@ -20,15 +20,6 @@ type GRPCManager struct {
 	configRepo      *db.ConfigRepository
 }
 
-// NewGRPCManager creates a new GRPCManager instance
-func NewGRPCManager() *GRPCManager {
-	return &GRPCManager{
-		kubeManager:     NewKubeManager(),
-		profileSwitcher: nil,
-		configRepo:      nil,
-	}
-}
-
 // NewGRPCManagerWithDeps creates a new GRPCManager with shared dependencies
 func NewGRPCManagerWithDeps(km *KubeManager, ps *ProfileSwitcher, repo *db.ConfigRepository) *GRPCManager {
 	return &GRPCManager{

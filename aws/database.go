@@ -3,12 +3,8 @@ package aws
 import (
 	"bytes"
 	"cmp"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"math/rand/v2"
 	"os"
-	"os/exec"
 	"rolewalkers/internal/k8s"
 	"rolewalkers/internal/utils"
 	"strings"
@@ -26,15 +22,6 @@ type DatabaseConfig struct {
 	Environment string
 	NodeType    string // read or write
 	DBType      string // query or command
-}
-
-// NewDatabaseManager creates a new DatabaseManager instance
-func NewDatabaseManager() *DatabaseManager {
-	return &DatabaseManager{
-		kubeManager:     NewKubeManager(),
-		ssmManager:      NewSSMManager(),
-		profileSwitcher: nil,
-	}
 }
 
 // NewDatabaseManagerWithDeps creates a new DatabaseManager with shared dependencies
@@ -77,60 +64,27 @@ func (dm *DatabaseManager) Connect(config DatabaseConfig) error {
 		return fmt.Errorf("failed to get database password: %w", err)
 	}
 
-	// Generate unique pod name
-	username := utils.GetCurrentUsernamePodSafe()
-	if username == "unknown" {
-		username = "user"
-	}
-	podName := fmt.Sprintf("psql-%s-%d", username, rand.IntN(10000))
-
 	fmt.Printf("\nConnecting to database:\n")
 	fmt.Printf("  Environment: %s\n", env)
 	fmt.Printf("  Database:    %s (%s node)\n", dbType, nodeType)
 	fmt.Printf("  Endpoint:    %s\n", endpoint)
 	fmt.Printf("  User:        zenithmaster\n")
-	fmt.Printf("  Pod:         %s\n", podName)
 	fmt.Println("\nStarting interactive psql session...")
 	fmt.Println("(Type \\q or Ctrl+D to exit)")
 	fmt.Println()
 
-	return dm.runPsqlPod(podName, endpoint, password)
+	return dm.runPsqlPod(endpoint, password)
 }
 
 // runPsqlPod spawns an interactive psql pod
-func (dm *DatabaseManager) runPsqlPod(podName, endpoint, password string) error {
-	// Build labels with creator identity
-	labels := k8s.CreatorLabelsWithSession()
-
-	// Pass PGPASSWORD via pod spec override to avoid exposing it in the process list
-	overrides := fmt.Sprintf(`{"spec":{"containers":[{"name":"%s","image":"postgres:15-alpine","stdin":true,"tty":true,"command":["psql","-h","%s","-U","zenithmaster","-d","postgres"],"env":[{"name":"PGPASSWORD","value":"%s"}]}]}}`, podName, endpoint, password)
-
-	cmd := exec.Command("kubectl", "run", podName,
-		"--rm", "-it",
-		"--restart=Never",
-		"--namespace="+TunnelAccessNamespace,
-		"--image=postgres:15-alpine",
-		"--labels", labels,
-		"--overrides", overrides,
-		"--override-type=strategic",
-	)
-
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err := cmd.Run()
-	if err != nil {
-		// Check if it's just the user exiting normally
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			if exitErr.ExitCode() == 0 {
-				return nil
-			}
-		}
-	}
-
-	return err
+func (dm *DatabaseManager) runPsqlPod(endpoint, password string) error {
+	return k8s.RunPod(k8s.PodSpec{
+		NamePrefix:  "psql",
+		Image:       "postgres:15-alpine",
+		Interactive: true,
+		Command:     []string{"psql", "-h", endpoint, "-U", "zenithmaster", "-d", "postgres"},
+		Env:         map[string]string{"PGPASSWORD": password},
+	})
 }
 
 
@@ -174,13 +128,6 @@ func (dm *DatabaseManager) Backup(config BackupConfig) error {
 		return fmt.Errorf("failed to get database password: %w", err)
 	}
 
-	// Generate unique pod name with username
-	username := utils.GetCurrentUsername()
-	if username == "unknown" {
-		username = "user"
-	}
-	podName := fmt.Sprintf("pgdump-%s-%d", username, rand.IntN(100000))
-
 	fmt.Printf("\nStarting database backup:\n")
 	fmt.Printf("  Environment: %s\n", env)
 	fmt.Printf("  Endpoint:    %s\n", endpoint)
@@ -190,19 +137,16 @@ func (dm *DatabaseManager) Backup(config BackupConfig) error {
 	} else {
 		fmt.Printf("  Mode:        Full backup (schema + data)\n")
 	}
-	fmt.Printf("  Pod:         %s\n", podName)
 	fmt.Println("\nRunning pg_dump...")
 
-	return dm.runPgDumpPod(podName, endpoint, password, config)
+	return dm.runPgDumpPod(endpoint, password, config)
 }
 
 // runPgDumpPod spawns a temporary pod to run pg_dump and captures output to file
-func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, config BackupConfig) (err error) {
-	// Build labels with creator identity
-	labels := k8s.CreatorLabelsWithOperation("backup")
-
+func (dm *DatabaseManager) runPgDumpPod(endpoint, password string, config BackupConfig) (err error) {
 	// Build pg_dump arguments
 	pgDumpArgs := []string{
+		"pg_dump",
 		"-h", endpoint,
 		"-U", "zenithmaster",
 		"-d", "zenith",
@@ -210,27 +154,6 @@ func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, conf
 	if config.SchemaOnly {
 		pgDumpArgs = append(pgDumpArgs, "--schema-only")
 	}
-
-	// Build pg_dump command string for overrides
-	pgDumpCmd := append([]string{"pg_dump"}, pgDumpArgs...)
-
-	// Pass PGPASSWORD via pod spec override to avoid exposing it in the process list
-	cmdJSON, _ := json.Marshal(pgDumpCmd)
-	overrides := fmt.Sprintf(`{"spec":{"containers":[{"name":"%s","image":"postgres:15-alpine","stdin":true,"command":%s,"env":[{"name":"PGPASSWORD","value":"%s"}]}]}}`, podName, string(cmdJSON), password)
-
-	// Build kubectl command
-	args := []string{
-		"run", podName,
-		"--rm", "-i",
-		"--restart=Never",
-		"--namespace=" + TunnelAccessNamespace,
-		"--image=postgres:15-alpine",
-		"--labels", labels,
-		"--overrides", overrides,
-		"--override-type=strategic",
-	}
-
-	cmd := exec.Command("kubectl", args...)
 
 	// Create output file
 	outFile, err := os.Create(config.OutputFile)
@@ -243,17 +166,22 @@ func (dm *DatabaseManager) runPgDumpPod(podName, endpoint, password string, conf
 		}
 	}()
 
-	// Capture stdout to file
 	var stderr bytes.Buffer
-	cmd.Stdout = outFile
-	cmd.Stderr = &stderr
 
-	err = cmd.Run()
-	if err != nil {
-		// Clean up partial file on error
+	runErr := k8s.RunPod(k8s.PodSpec{
+		NamePrefix: "pgdump",
+		Image:      "postgres:15-alpine",
+		Command:    pgDumpArgs,
+		Env:        map[string]string{"PGPASSWORD": password},
+		Operation:  "backup",
+		Stdout:     outFile,
+		Stderr:     &stderr,
+	})
+
+	if runErr != nil {
 		outFile.Close()
 		os.Remove(config.OutputFile)
-		return fmt.Errorf("pg_dump failed: %w: %s", err, stderr.String())
+		return fmt.Errorf("pg_dump failed: %w: %s", runErr, stderr.String())
 	}
 
 	// Get file size
@@ -297,13 +225,6 @@ func (dm *DatabaseManager) Restore(config RestoreConfig) error {
 		return fmt.Errorf("failed to get database password: %w", err)
 	}
 
-	// Generate unique pod name with username
-	username := utils.GetCurrentUsername()
-	if username == "unknown" {
-		username = "user"
-	}
-	podName := fmt.Sprintf("pgrestore-%s-%d", username, rand.IntN(100000))
-
 	// Get file size for progress info
 	fileInfo, _ := os.Stat(config.InputFile)
 
@@ -316,49 +237,21 @@ func (dm *DatabaseManager) Restore(config RestoreConfig) error {
 	} else {
 		fmt.Printf("  Mode:        Standard\n")
 	}
-	fmt.Printf("  Pod:         %s\n", podName)
 	fmt.Println("\nRunning psql restore...")
 
-	return dm.runPsqlRestorePod(podName, endpoint, password, config)
+	return dm.runPsqlRestorePod(endpoint, password, config)
 }
 
 // runPsqlRestorePod spawns a temporary pod to run psql and pipes SQL file to stdin
-func (dm *DatabaseManager) runPsqlRestorePod(podName, endpoint, password string, config RestoreConfig) error {
-	// Build labels with creator identity
-	labels := k8s.CreatorLabelsWithOperation("restore")
-
+func (dm *DatabaseManager) runPsqlRestorePod(endpoint, password string, config RestoreConfig) error {
 	// Build psql arguments
 	psqlArgs := []string{
+		"psql",
 		"-h", endpoint,
 		"-U", "zenithmaster",
 		"-d", "zenith",
 		"-v", "ON_ERROR_STOP=1",
 	}
-	if config.Clean {
-		// Note: --clean is typically used with pg_restore, for psql we rely on the dump having DROP statements
-		// or we can add -c flag which sends \c command
-	}
-
-	// Build psql command for overrides
-	psqlCmd := append([]string{"psql"}, psqlArgs...)
-	cmdJSON, _ := json.Marshal(psqlCmd)
-
-	// Pass PGPASSWORD via pod spec override to avoid exposing it in the process list
-	overrides := fmt.Sprintf(`{"spec":{"containers":[{"name":"%s","image":"postgres:15-alpine","stdin":true,"command":%s,"env":[{"name":"PGPASSWORD","value":"%s"}]}]}}`, podName, string(cmdJSON), password)
-
-	// Build kubectl command
-	args := []string{
-		"run", podName,
-		"--rm", "-i",
-		"--restart=Never",
-		"--namespace=" + TunnelAccessNamespace,
-		"--image=postgres:15-alpine",
-		"--labels", labels,
-		"--overrides", overrides,
-		"--override-type=strategic",
-	}
-
-	cmd := exec.Command("kubectl", args...)
 
 	// Open input file
 	inFile, err := os.Open(config.InputFile)
@@ -367,16 +260,21 @@ func (dm *DatabaseManager) runPsqlRestorePod(podName, endpoint, password string,
 	}
 	defer inFile.Close()
 
-	// Pipe file to stdin
-	cmd.Stdin = inFile
-
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
 
-	err = cmd.Run()
-	if err != nil {
-		return fmt.Errorf("psql restore failed: %w: %s\n%s", err, stderr.String(), stdout.String())
+	runErr := k8s.RunPod(k8s.PodSpec{
+		NamePrefix: "psql-restore",
+		Image:      "postgres:15-alpine",
+		Command:    psqlArgs,
+		Env:        map[string]string{"PGPASSWORD": password},
+		Operation:  "restore",
+		Stdin:      inFile,
+		Stdout:     &stdout,
+		Stderr:     &stderr,
+	})
+
+	if runErr != nil {
+		return fmt.Errorf("psql restore failed: %w: %s\n%s", runErr, stderr.String(), stdout.String())
 	}
 
 	fmt.Printf("\n✓ Restore completed successfully!\n")

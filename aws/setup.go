@@ -145,9 +145,13 @@ func (sm *SetupManager) LoginAndDiscover(startURL, ssoRegion string) (*SetupResu
 	// Step 7: Discover EKS clusters per account
 	fmt.Println("\nDiscovering EKS clusters...")
 	for _, p := range allProfiles {
+		// Only check the main admin profiles (skip RDS-specific roles)
+		if strings.Contains(p.SSORoleName, "RDS") {
+			continue
+		}
+
 		clusters, err := sm.listEKSClusters(p.Name)
 		if err != nil {
-			// Not all accounts have EKS — this is expected
 			continue
 		}
 
@@ -155,12 +159,10 @@ func (sm *SetupManager) LoginAndDiscover(startURL, ssoRegion string) (*SetupResu
 			fmt.Printf("  ✓ %s → %s\n", p.Name, cluster)
 			result.Clusters++
 
-			// Update kubeconfig
 			if err := sm.updateKubeconfig(cluster, p.Name); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("Failed to update kubeconfig for %s: %v", cluster, err))
 			}
 
-			// Map cluster to environment and save to DB
 			envName := sm.extractEnvFromCluster(cluster)
 			if envName != "" && sm.dbRepo != nil {
 				sm.upsertEnvironment(envName, p.Name, cluster)
@@ -353,20 +355,94 @@ func (sm *SetupManager) writeAWSConfig(sessionName, startURL, ssoRegion string, 
 	return os.WriteFile(cm.configPath, []byte(sb.String()), 0600)
 }
 
-// buildProfileName creates a profile name from account name and role.
+// buildProfileName creates a clean profile name from account name and role.
+// Examples:
+//   "Zenith Dev" + "AdministratorAccess" → "zenith-dev"
+//   "Zenith (QA)" + "AdministratorAccess" → "zenith-qa"
+//   "Zenith Dev" + "ZenithDevRDSAdminAccess" → "zenith-dev-rds-admin"
+//   "Zenith Live" + "ZenithLiveRDSReadOnlyAccess" → "zenith-live-rds-readonly"
 func (sm *SetupManager) buildProfileName(accountName, roleName string) string {
-	// Normalize: "Zenith Dev" → "zenith-dev"
+	// Normalize account name: "Zenith (QA)" → "zenith-qa", "Zenith Dev" → "zenith-dev"
 	name := strings.ToLower(accountName)
+	name = strings.ReplaceAll(name, "(", "")
+	name = strings.ReplaceAll(name, ")", "")
+	name = strings.TrimSpace(name)
 	name = strings.ReplaceAll(name, " ", "-")
 	name = strings.ReplaceAll(name, "_", "-")
+	// Collapse multiple dashes
+	for strings.Contains(name, "--") {
+		name = strings.ReplaceAll(name, "--", "-")
+	}
+	name = strings.Trim(name, "-")
 
-	// If role is not the default admin role, append it
+	// For the default admin role, just use the account name
 	roleLower := strings.ToLower(roleName)
-	if roleLower != "administratoraccess" && roleLower != "admin" {
-		name += "-" + strings.ToLower(roleName)
+	if roleLower == "administratoraccess" || roleLower == "admin" {
+		return name
 	}
 
-	return name
+	// For other roles, build a clean suffix
+	// Strip the account-specific prefix from role names
+	// e.g. "ZenithDevRDSAdminAccess" → "rds-admin"
+	// e.g. "ZenithQARDSReadOnlyAccess" → "rds-readonly"
+	roleSuffix := sm.cleanRoleSuffix(accountName, roleName)
+	if roleSuffix != "" {
+		return name + "-" + roleSuffix
+	}
+
+	return name + "-" + strings.ToLower(roleName)
+}
+
+// cleanRoleSuffix strips the account-specific prefix from a role name
+// and converts to kebab-case.
+func (sm *SetupManager) cleanRoleSuffix(accountName, roleName string) string {
+	// Build possible prefixes to strip: "ZenithDev", "ZenithQA", "Zenith", etc.
+	words := strings.Fields(accountName)
+	prefixes := []string{}
+
+	// Try full account name without spaces: "ZenithDev", "ZenithQA"
+	joined := ""
+	for _, w := range words {
+		// Skip parenthesized words for prefix building
+		w = strings.Trim(w, "()")
+		joined += w
+	}
+	prefixes = append(prefixes, joined)
+
+	// Try just the first word: "Zenith"
+	if len(words) > 0 {
+		prefixes = append(prefixes, words[0])
+	}
+
+	// Strip the prefix (case-insensitive)
+	role := roleName
+	for _, prefix := range prefixes {
+		if len(role) > len(prefix) && strings.EqualFold(role[:len(prefix)], prefix) {
+			role = role[len(prefix):]
+			break
+		}
+	}
+
+	// Strip common suffixes
+	role = strings.TrimSuffix(role, "Access")
+
+	// Convert CamelCase to kebab-case
+	result := camelToKebab(role)
+	result = strings.Trim(result, "-")
+
+	return result
+}
+
+// camelToKebab converts CamelCase to kebab-case.
+func camelToKebab(s string) string {
+	var result strings.Builder
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result.WriteByte('-')
+		}
+		result.WriteRune(r)
+	}
+	return strings.ToLower(result.String())
 }
 
 // extractEnvFromCluster extracts the environment name from a cluster name.
@@ -393,17 +469,19 @@ func (sm *SetupManager) upsertEnvironment(envName, profileName, clusterName stri
 		return
 	}
 
+	cfg := config.Get()
+	displayName := strings.ToUpper(envName[:1]) + envName[1:]
+
 	// Check if environment already exists
 	existing, err := sm.dbRepo.GetEnvironment(envName)
 	if err == nil && existing != nil {
-		// Already exists — skip
+		// Update the profile mapping if it changed
+		if existing.AWSProfile != profileName {
+			sm.dbRepo.UpdateEnvironment(envName, profileName, clusterName)
+		}
 		return
 	}
 
-	displayName := strings.ToUpper(envName[:1]) + envName[1:]
-	cfg := config.Get()
-
-	// Insert new environment
 	sm.dbRepo.AddEnvironment(envName, displayName, cfg.Region, profileName, clusterName)
 }
 

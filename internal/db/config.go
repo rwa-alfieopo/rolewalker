@@ -650,3 +650,15 @@ func (r *ConfigRepository) AddEnvironment(name, displayName, region, awsProfile,
 	`, name, displayName, region, awsProfile, clusterName)
 	return err
 }
+
+// UpdateEnvironment updates the AWS profile and cluster name for an environment.
+func (r *ConfigRepository) UpdateEnvironment(name, awsProfile, clusterName string) error {
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE environments SET aws_profile = ?, cluster_name = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE name = ?
+	`, awsProfile, clusterName, name)
+	return err
+}

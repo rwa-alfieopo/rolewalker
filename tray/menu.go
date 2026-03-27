@@ -12,35 +12,107 @@ import (
 	"github.com/getlantern/systray"
 )
 
-// buildMenu is called periodically to refresh the tray title.
-// systray doesn't support removing/rebuilding items, so only the title updates.
-func (a *app) buildMenu() {
+// buildInitialMenu creates the menu structure once. Items are stored on the
+// app struct so refreshMenu can update their titles dynamically.
+func (a *app) buildInitialMenu() {
+	active := a.cm.GetActiveProfile()
+
+	// --- Header ---
+	a.mStatus = systray.AddMenuItem("", "Current AWS profile")
+	a.mStatus.Disable()
+
+	a.mKube = systray.AddMenuItem("", "Kubernetes context")
+	a.mKube.Disable()
+
+	systray.AddSeparator()
+
+	// --- Profiles ---
+	profiles, err := a.cm.GetProfiles()
+	if err != nil {
+		mErr := systray.AddMenuItem("⚠ Failed to load profiles", err.Error())
+		mErr.Disable()
+	} else {
+		for _, p := range profiles {
+			profile := p
+			item := systray.AddMenuItem("", fmt.Sprintf("Switch to %s", profile.Name))
+			a.profItems = append(a.profItems, profileItem{item: item, profile: profile})
+
+			go func() {
+				for {
+					<-item.ClickedCh
+					a.switchProfile(profile)
+					// Trigger immediate refresh after switch
+					a.refreshMenu()
+				}
+			}()
+		}
+	}
+
+	systray.AddSeparator()
+
+	// --- Namespaces ---
+	mNSHeader := systray.AddMenuItem("Namespaces", "")
+	mNSHeader.Disable()
+
+	namespaces := []string{"zenith", "tunnel-access", "default", "kube-system"}
+	for _, ns := range namespaces {
+		namespace := ns
+		item := systray.AddMenuItem("", fmt.Sprintf("Switch to namespace %s", namespace))
+		a.nsItems = append(a.nsItems, item)
+
+		go func() {
+			for {
+				<-item.ClickedCh
+				if err := a.km.SetNamespace(namespace); err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to set namespace %s: %v\n", namespace, err)
+				} else {
+					fmt.Fprintf(os.Stderr, "Namespace set to: %s\n", namespace)
+					a.refreshMenu()
+				}
+			}
+		}()
+	}
+
+	systray.AddSeparator()
+
+	// --- Quit ---
+	mQuit := systray.AddMenuItem("Quit", "Quit rolewalkers tray")
+	go func() {
+		<-mQuit.ClickedCh
+		close(a.quit)
+		if a.db != nil {
+			a.db.Close()
+		}
+		systray.Quit()
+	}()
+
+	// Set initial labels
+	a.refreshLabels(active)
+}
+
+// refreshMenu updates all dynamic labels. Safe to call from any goroutine.
+func (a *app) refreshMenu() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	active := a.cm.GetActiveProfile()
-	region := a.ps.GetDefaultRegion()
-
-	title := fmt.Sprintf("☁ %s", active)
-	if region != "" {
-		title += fmt.Sprintf(" (%s)", region)
-	}
-	systray.SetTitle(title)
+	a.refreshLabels(active)
 }
 
-// buildInitialMenu is called once during onReady to create the menu structure.
-func (a *app) buildInitialMenu() {
-	active := a.cm.GetActiveProfile()
+// refreshLabels updates the tray title and all menu item labels.
+// Must be called with a.mu held.
+func (a *app) refreshLabels(active string) {
 	region := a.ps.GetDefaultRegion()
 
+	// Tray title
 	title := fmt.Sprintf("☁ %s", active)
 	if region != "" {
 		title += fmt.Sprintf(" (%s)", region)
 	}
 	systray.SetTitle(title)
 
-	mStatus := systray.AddMenuItem(fmt.Sprintf("Active: %s", active), "Current AWS profile")
-	mStatus.Disable()
+	// Status header
+	a.mStatus.SetTitle(fmt.Sprintf("Active: %s", active))
 
 	// Kube context
 	kubeCtx := "(none)"
@@ -55,54 +127,25 @@ func (a *app) buildInitialMenu() {
 	if kubeNS == "" {
 		kubeNS = "default"
 	}
-	mKube := systray.AddMenuItem(fmt.Sprintf("⎈ %s / %s", kubeCtx, kubeNS), "Kubernetes context")
-	mKube.Disable()
+	a.mKube.SetTitle(fmt.Sprintf("⎈ %s / %s", kubeCtx, kubeNS))
 
-	systray.AddSeparator()
-
-	// --- Profiles section ---
-	profiles, err := a.cm.GetProfiles()
-	if err != nil {
-		mErr := systray.AddMenuItem("⚠ Failed to load profiles", err.Error())
-		mErr.Disable()
-	} else {
-		a.addProfileItems(profiles, active)
+	// Profile items
+	for i := range a.profItems {
+		pi := &a.profItems[i]
+		pi.profile.IsActive = (pi.profile.Name == active)
+		pi.item.SetTitle(a.formatProfileLabel(pi.profile))
 	}
 
-	systray.AddSeparator()
-
-	// --- Kubernetes namespaces ---
-	a.addKubeSection()
-
-	systray.AddSeparator()
-
-	// --- Quit ---
-	mQuit := systray.AddMenuItem("Quit", "Quit rolewalkers tray")
-	go func() {
-		<-mQuit.ClickedCh
-		close(a.quit)
-		if a.db != nil {
-			a.db.Close()
-		}
-		systray.Quit()
-	}()
-}
-
-// addProfileItems adds a menu item per profile with SSO status and session time.
-func (a *app) addProfileItems(profiles []aws.Profile, active string) {
-	for _, p := range profiles {
-		profile := p // capture for goroutine
-
-		label := a.formatProfileLabel(profile)
-
-		item := systray.AddMenuItem(label, fmt.Sprintf("Switch to %s", profile.Name))
-
-		go func() {
-			for {
-				<-item.ClickedCh
-				a.switchProfile(profile)
+	// Namespace items
+	namespaces := []string{"zenith", "tunnel-access", "default", "kube-system"}
+	for i, item := range a.nsItems {
+		if i < len(namespaces) {
+			label := "  " + namespaces[i]
+			if namespaces[i] == kubeNS {
+				label = "✓ " + namespaces[i]
 			}
-		}()
+			item.SetTitle(label)
+		}
 	}
 }
 
@@ -135,8 +178,7 @@ func (a *app) formatProfileLabel(profile aws.Profile) string {
 	return label
 }
 
-// getSessionTimeLeft returns a human-readable string of time remaining
-// on the SSO session, e.g. "2h 15m", "45m", "< 1m".
+// getSessionTimeLeft returns a human-readable string of time remaining.
 func (a *app) getSessionTimeLeft(profileName string) string {
 	if a.sm == nil {
 		return ""
@@ -188,43 +230,5 @@ func (a *app) switchProfile(profile aws.Profile) {
 		fmt.Fprintf(os.Stderr, "Kube context switch failed: %v\n", err)
 	}
 
-	// Update tray title
-	title := fmt.Sprintf("☁ %s", profile.Name)
-	if profile.Region != "" {
-		title += fmt.Sprintf(" (%s)", profile.Region)
-	}
-	systray.SetTitle(title)
-
 	fmt.Fprintf(os.Stderr, "Switched to: %s\n", profile.Name)
-}
-
-// addKubeSection adds namespace quick-switch items for common namespaces.
-func (a *app) addKubeSection() {
-	mKubeHeader := systray.AddMenuItem("Namespaces", "")
-	mKubeHeader.Disable()
-
-	namespaces := []string{"zenith", "tunnel-access", "default", "kube-system"}
-
-	for _, ns := range namespaces {
-		namespace := ns // capture
-		currentNS := a.km.GetCurrentNamespace()
-
-		label := "  " + namespace
-		if namespace == currentNS {
-			label = "✓ " + namespace
-		}
-
-		item := systray.AddMenuItem(label, fmt.Sprintf("Switch to namespace %s", namespace))
-
-		go func() {
-			for {
-				<-item.ClickedCh
-				if err := a.km.SetNamespace(namespace); err != nil {
-					fmt.Fprintf(os.Stderr, "Failed to set namespace %s: %v\n", namespace, err)
-				} else {
-					fmt.Fprintf(os.Stderr, "Namespace set to: %s\n", namespace)
-				}
-			}
-		}()
-	}
 }

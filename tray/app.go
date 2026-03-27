@@ -12,6 +12,12 @@ import (
 	"github.com/getlantern/systray"
 )
 
+// profileItem pairs a systray menu item with its profile for dynamic updates.
+type profileItem struct {
+	item    *systray.MenuItem
+	profile aws.Profile
+}
+
 // app holds the tray application state.
 type app struct {
 	cm  *aws.ConfigManager
@@ -21,6 +27,12 @@ type app struct {
 	db  *db.DB
 	mu  sync.Mutex
 	quit chan struct{}
+
+	// Dynamic menu items that get refreshed
+	mStatus   *systray.MenuItem
+	mKube     *systray.MenuItem
+	profItems []profileItem
+	nsItems   []*systray.MenuItem
 }
 
 // Run starts the system tray application.
@@ -63,14 +75,14 @@ func onReady() {
 
 	a.buildInitialMenu()
 
-	// Refresh tray title every 30 seconds to pick up profile/SSO changes
+	// Refresh every 15 seconds to update SSO status, time remaining, active profile
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				a.buildMenu()
+				a.refreshMenu()
 			case <-a.quit:
 				return
 			}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/manifoldco/promptui"
 )
 
 // ConfirmAction prompts the user for confirmation with a custom message
@@ -138,45 +140,39 @@ func ConfirmProductionOperation(env, operation string) bool {
 	return response == "yes"
 }
 
-// SelectFromList prompts the user to select an item from a list
-// Returns the selected item and true, or empty string and false if cancelled
+// SelectFromList prompts the user to select an item from a list using arrow keys.
+// Supports type-to-search filtering. Returns the selected item and true,
+// or empty string and false if cancelled.
 func SelectFromList(prompt string, items []string) (string, bool) {
 	if len(items) == 0 {
 		return "", false
 	}
 
-	fmt.Println(prompt)
-	fmt.Println(strings.Repeat("-", 60))
-
-	for i, item := range items {
-		fmt.Printf("  [%d] %s\n", i+1, item)
+	searcher := func(input string, index int) bool {
+		item := strings.ToLower(items[index])
+		input = strings.ToLower(strings.TrimSpace(input))
+		return strings.Contains(item, input)
 	}
 
-	fmt.Print("\nSelect number (or 'q' to quit): ")
+	p := promptui.Select{
+		Label:    prompt,
+		Items:    items,
+		Size:     15,
+		Searcher: searcher,
+		Templates: &promptui.SelectTemplates{
+			Label:    "{{ . }}",
+			Active:   "▸ {{ . | cyan }}",
+			Inactive: "  {{ . }}",
+			Selected: "✓ {{ . | green }}",
+		},
+		HideHelp: true,
+	}
 
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
+	idx, _, err := p.Run()
 	if err != nil {
 		return "", false
 	}
 
-	response = strings.TrimSpace(strings.ToLower(response))
-
-	if response == "q" || response == "quit" || response == "exit" {
-		return "", false
-	}
-
-	var selection int
-	if _, err := fmt.Sscanf(response, "%d", &selection); err != nil {
-		fmt.Println("Invalid selection")
-		return "", false
-	}
-
-	if selection < 1 || selection > len(items) {
-		fmt.Println("Selection out of range")
-		return "", false
-	}
-
-	return items[selection-1], true
+	return items[idx], true
 }
 

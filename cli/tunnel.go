@@ -93,20 +93,35 @@ func (c *CLI) tunnelStop(args []string) error {
 }
 
 func (c *CLI) port(args []string) error {
-	portConfig := aws.NewPortConfig()
+	portConfig := aws.NewPortConfigWithRepo(c.dbRepo)
 
-	if len(args) > 0 && (args[0] == "--list" || args[0] == "-l") {
+	if len(args) > 0 && (args[0] == "--list" || args[0] == "-l" || args[0] == "list" || args[0] == "ls") {
 		fmt.Print(portConfig.ListAll())
 		return nil
 	}
 
-	if len(args) < 2 {
-		return fmt.Errorf("usage: rw port <service> <env>\n       rw port --list\n\nServices: %s\nEnvironments: %s",
-			portConfig.GetServices(), portConfig.GetEnvironments())
-	}
+	service := ""
+	env := ""
 
-	service := args[0]
-	env := args[1]
+	if len(args) >= 2 {
+		service = args[0]
+		env = args[1]
+	} else {
+		if len(args) >= 1 {
+			service = args[0]
+		} else {
+			picked, err := c.pickService(false)
+			if err != nil {
+				return err
+			}
+			service = picked
+		}
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		env = picked
+	}
 
 	ports, err := portConfig.GetPort(service, env)
 	if err != nil {

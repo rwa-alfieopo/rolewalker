@@ -33,19 +33,25 @@ func (c *CLI) dbConnect(args []string) error {
 		DBType:   "query",
 	}
 
+	hasNodeType := false
+	hasDBType := false
+
 	for _, arg := range args {
 		switch arg {
 		case "--write", "-w":
 			config.NodeType = "write"
+			hasNodeType = true
 		case "--command", "-c":
 			config.DBType = "command"
+			hasDBType = true
 		case "--readonly", "--ro":
 			config.Role = "readonly"
 			config.UseIAM = true
 		case "--admin":
 			config.Role = "admin"
 			config.UseIAM = true
-			config.NodeType = "write" // admin typically needs write access
+			config.NodeType = "write"
+			hasNodeType = true
 		case "--iam":
 			config.UseIAM = true
 		default:
@@ -56,7 +62,6 @@ func (c *CLI) dbConnect(args []string) error {
 	}
 
 	if config.Environment == "" {
-		// Interactive environment picker
 		picked, err := c.pickEnvironment()
 		if err != nil {
 			return err
@@ -64,14 +69,40 @@ func (c *CLI) dbConnect(args []string) error {
 		config.Environment = picked
 	}
 
+	// For prod-like environments, offer interactive DB type and node type pickers
+	if !hasDBType && isProdLikeEnv(config.Environment) {
+		dbType, ok := utils.SelectFromList("Database cluster:", []string{"query (read replicas)", "command (OLTP/write)"})
+		if !ok {
+			return fmt.Errorf("selection cancelled")
+		}
+		if strings.HasPrefix(dbType, "command") {
+			config.DBType = "command"
+		}
+	}
+
+	if !hasNodeType {
+		nodeType, ok := utils.SelectFromList("Node type:", []string{"read (reader endpoint)", "write (writer endpoint)"})
+		if !ok {
+			return fmt.Errorf("selection cancelled")
+		}
+		if strings.HasPrefix(nodeType, "write") {
+			config.NodeType = "write"
+		}
+	}
+
 	return c.dbManager.Connect(config)
 }
 
-func (c *CLI) dbBackup(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: rw db backup <env> --output <file> [--schema-only]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+// isProdLikeEnv returns true for environments that have separate query/command clusters.
+func isProdLikeEnv(env string) bool {
+	switch strings.ToLower(env) {
+	case "prod", "qa", "stage", "preprod", "trg":
+		return true
 	}
+	return false
+}
 
+func (c *CLI) dbBackup(args []string) error {
 	fs := ParseFlags(args)
 	config := aws.BackupConfig{
 		Environment: fs.Arg(0),
@@ -80,7 +111,11 @@ func (c *CLI) dbBackup(args []string) error {
 	}
 
 	if config.Environment == "" {
-		return fmt.Errorf("environment is required\n\nUsage: rw db backup <env> --output <file>")
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		config.Environment = picked
 	}
 
 	if config.OutputFile == "" {
@@ -91,10 +126,6 @@ func (c *CLI) dbBackup(args []string) error {
 }
 
 func (c *CLI) dbRestore(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: rw db restore <env> --input <file> [--clean] [--yes]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
-	}
-
 	fs := ParseFlags(args)
 	config := aws.RestoreConfig{
 		Environment: fs.Arg(0),
@@ -104,7 +135,11 @@ func (c *CLI) dbRestore(args []string) error {
 	skipConfirm := fs.Bool("yes") || fs.Bool("y")
 
 	if config.Environment == "" {
-		return fmt.Errorf("environment is required\n\nUsage: rw db restore <env> --input <file>")
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		config.Environment = picked
 	}
 
 	if config.InputFile == "" {

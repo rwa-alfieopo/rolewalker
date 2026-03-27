@@ -317,6 +317,11 @@ func (tm *TunnelManager) StopAll() error {
 	return nil
 }
 
+// ListTunnels returns all active tunnels as structured data.
+func (tm *TunnelManager) ListTunnels() []*TunnelInfo {
+	return tm.state.List()
+}
+
 // List returns formatted list of active tunnels
 func (tm *TunnelManager) List() string {
 	tunnels := tm.state.List()

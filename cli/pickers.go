@@ -92,24 +92,28 @@ func (c *CLI) pickEnvironment() (string, error) {
 
 // pickActiveTunnel shows a picker of currently active tunnels for stopping.
 func (c *CLI) pickActiveTunnel() (*tunnelChoice, error) {
-	listOutput := c.tunnelManager.List()
-	if strings.Contains(listOutput, "No active tunnels") || strings.TrimSpace(listOutput) == "" {
+	tunnels := c.tunnelManager.ListTunnels()
+	if len(tunnels) == 0 {
 		return nil, fmt.Errorf("no active tunnels to stop\nUse 'rw tunnel start <service> <env>' to create one")
 	}
 
-	// Show the list and fall back to service+env picker
-	fmt.Print(listOutput)
-	fmt.Println()
-
-	fmt.Println("Pick the tunnel to stop:")
-	service, err := c.pickService(false)
-	if err != nil {
-		return nil, err
-	}
-	env, err := c.pickEnvironment()
-	if err != nil {
-		return nil, err
+	// Build labels for the picker
+	labels := make([]string, len(tunnels))
+	for i, t := range tunnels {
+		labels[i] = fmt.Sprintf("%s-%s  (localhost:%d → %s)", t.Service, t.Environment, t.LocalPort, t.RemoteHost)
 	}
 
-	return &tunnelChoice{Service: service, Environment: env}, nil
+	selected, ok := utils.SelectFromList("Select tunnel to stop:", labels)
+	if !ok {
+		return nil, fmt.Errorf("selection cancelled")
+	}
+
+	// Find the matching tunnel
+	for i, label := range labels {
+		if label == selected {
+			return &tunnelChoice{Service: tunnels[i].Service, Environment: tunnels[i].Environment}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("unexpected selection error")
 }

@@ -60,6 +60,7 @@ type TunnelManagerI interface {
 	Stop(service, env string) error
 	StopAll() error
 	List() string
+	ListTunnels() []*TunnelInfo
 	CleanupStale() error
 	GetSupportedServices() string
 }

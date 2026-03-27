@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"rolewalkers/aws"
 	"rolewalkers/internal/utils"
@@ -34,9 +35,20 @@ func (c *CLI) listProfiles() error {
 		ssoStatus := ""
 		if p.IsSSO {
 			if c.ssoManager.IsLoggedIn(p.Name) {
-				ssoStatus = " (SSO: logged in)"
+				ssoStatus = " (SSO: logged in"
+				if expiry, err := c.ssoManager.GetCredentialExpiry(p.Name); err == nil {
+					remaining := time.Until(*expiry)
+					hours := int(remaining.Hours())
+					minutes := int(remaining.Minutes()) % 60
+					if hours > 0 {
+						ssoStatus += fmt.Sprintf(", %dh %dm left", hours, minutes)
+					} else if minutes > 0 {
+						ssoStatus += fmt.Sprintf(", %dm left", minutes)
+					}
+				}
+				ssoStatus += ")"
 			} else {
-				ssoStatus = " (SSO: not logged in)"
+				ssoStatus = " (SSO: expired)"
 			}
 		}
 
@@ -173,6 +185,7 @@ func (c *CLI) switchProfile(profileName string, skipKube bool) error {
 		return err
 	}
 
+	fmt.Printf("✓ Switched to: %s\n", profileName)
 	c.postSwitch(profileName, skipKube)
 	return nil
 }

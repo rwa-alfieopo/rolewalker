@@ -21,11 +21,16 @@ func (c *CLI) maintenance(args []string) error {
 }
 
 func (c *CLI) maintenanceStatus(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: rw maintenance status <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod")
+	env := ""
+	if len(args) >= 1 {
+		env = args[0]
+	} else {
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		env = picked
 	}
-
-	env := args[0]
 	statuses, err := c.maintenanceManager.Status(env)
 	if err != nil {
 		return err
@@ -133,11 +138,18 @@ func (c *CLI) scale(args []string) error {
 }
 
 func (c *CLI) scaleList(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: rw scale list <env>")
+	env := ""
+	if len(args) >= 1 {
+		env = args[0]
+	} else {
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		env = picked
 	}
 
-	output, err := c.scalingManager.ListHPAs(args[0])
+	output, err := c.scalingManager.ListHPAs(env)
 	if err != nil {
 		return err
 	}
@@ -171,11 +183,18 @@ func (c *CLI) replication(args []string) error {
 }
 
 func (c *CLI) replicationStatus(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: rw replication status <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+	env := ""
+	if len(args) >= 1 {
+		env = args[0]
+	} else {
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		env = picked
 	}
 
-	output, err := c.replicationManager.Status(args[0])
+	output, err := c.replicationManager.Status(env)
 	if err != nil {
 		return err
 	}

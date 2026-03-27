@@ -128,7 +128,7 @@ func (c *CLI) Close() {
 // Run executes the CLI with given arguments
 func (c *CLI) Run(args []string) error {
 	if len(args) < 1 {
-		return c.showHelp()
+		return c.current()
 	}
 
 	command := args[0]

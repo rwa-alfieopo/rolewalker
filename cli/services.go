@@ -76,25 +76,32 @@ func (c *CLI) msk(args []string) error {
 	case "connect", "cli":
 		return c.mskConnect(subArgs)
 	case "stop":
-		if len(subArgs) < 1 {
-			return fmt.Errorf("usage: rw msk stop <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
+		env := ""
+		if len(subArgs) >= 1 {
+			env = subArgs[0]
+		} else {
+			picked, err := c.pickEnvironment()
+			if err != nil {
+				return err
+			}
+			env = picked
 		}
-		return c.mskManager.StopUI(subArgs[0])
+		return c.mskManager.StopUI(env)
 	default:
 		return fmt.Errorf("unknown msk subcommand: %s\nUse: ui, connect, stop", subCmd)
 	}
 }
 
 func (c *CLI) mskUI(args []string) error {
-	if len(args) < 1 {
-		return fmt.Errorf("usage: rw msk ui <env> [--port <port>]\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
-	}
-
 	fs := ParseFlags(args)
 	env := fs.Arg(0)
 
 	if env == "" {
-		return fmt.Errorf("environment is required\n\nUsage: rw msk ui <env> [--port <port>]")
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		env = picked
 	}
 
 	port, err := fs.Int("port", 8080)

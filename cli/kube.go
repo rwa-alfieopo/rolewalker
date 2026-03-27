@@ -8,7 +8,12 @@ import (
 
 func (c *CLI) kube(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rw kube <env>\n       rw kube list\n       rw kube set namespace\n\nExamples:\n  rw kube dev              # Switch to dev EKS cluster context\n  rw kube prod             # Switch to prod EKS cluster context\n  rw kube list             # List all available contexts\n  rw kube set namespace    # Interactively set default namespace")
+		// No args — interactive environment picker
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		args = []string{picked}
 	}
 
 	subCmd := args[0]

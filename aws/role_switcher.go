@@ -2,7 +2,6 @@ package aws
 
 import (
 	"fmt"
-	"strings"
 
 	"rolewalkers/internal/db"
 )
@@ -134,23 +133,4 @@ func (rs *RoleSwitcher) ListRolesByAccount(accountID string) ([]db.AWSRole, erro
 // ListAllAccounts lists all AWS accounts
 func (rs *RoleSwitcher) ListAllAccounts() ([]db.AWSAccount, error) {
 	return rs.dbRepo.GetAllAWSAccounts()
-}
-
-// FormatRoleInfo returns a formatted string with role details
-func FormatRoleInfo(role db.AWSRole, account db.AWSAccount) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Profile: %s\n", role.ProfileName)
-	fmt.Fprintf(&sb, "  Account: %s (%s)\n", account.AccountName, account.AccountID)
-	fmt.Fprintf(&sb, "  Role: %s\n", role.RoleName)
-	fmt.Fprintf(&sb, "  Region: %s\n", role.Region)
-	
-	if role.RoleARN.Valid && role.RoleARN.String != "" {
-		fmt.Fprintf(&sb, "  ARN: %s\n", role.RoleARN.String)
-	}
-	
-	if account.SSOStartURL.Valid && account.SSOStartURL.String != "" {
-		fmt.Fprintf(&sb, "  SSO: %s\n", account.SSOStartURL.String)
-	}
-	
-	return sb.String()
 }

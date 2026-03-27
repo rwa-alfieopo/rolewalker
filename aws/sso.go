@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"time"
 )
 
@@ -90,7 +89,8 @@ func (sm *SSOManager) Login(profileName string) error {
 	return cmd.Run()
 }
 
-// LoginWithBrowser opens browser for SSO login and returns when complete
+// LoginWithBrowser is an alias for Login (kept for interface compatibility).
+// Deprecated: use Login directly.
 func (sm *SSOManager) LoginWithBrowser(profileName string) error {
 	return sm.Login(profileName)
 }
@@ -149,22 +149,6 @@ func (sm *SSOManager) Logout(profileName string) error {
 	return cmd.Run()
 }
 
-// OpenBrowser opens the default browser with the given URL
-func OpenBrowser(url string) error {
-	var cmd *exec.Cmd
-
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	case "darwin":
-		cmd = exec.Command("open", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-
-	return cmd.Start()
-}
-
 // GetSSOProfiles returns only SSO-enabled profiles
 func (sm *SSOManager) GetSSOProfiles() ([]Profile, error) {
 	profiles, err := sm.configManager.GetProfiles()
@@ -180,34 +164,6 @@ func (sm *SSOManager) GetSSOProfiles() ([]Profile, error) {
 	}
 
 	return ssoProfiles, nil
-}
-
-// GetStartURLs returns unique SSO start URLs
-func (sm *SSOManager) GetStartURLs() ([]string, error) {
-	profiles, err := sm.GetSSOProfiles()
-	if err != nil {
-		return nil, err
-	}
-
-	urlSet := make(map[string]bool)
-	for _, p := range profiles {
-		if p.SSOStartURL != "" {
-			urlSet[p.SSOStartURL] = true
-		}
-	}
-
-	urls := make([]string, 0, len(urlSet))
-	for url := range urlSet {
-		urls = append(urls, url)
-	}
-
-	return urls, nil
-}
-
-// RefreshCredentials refreshes credentials for a profile
-func (sm *SSOManager) RefreshCredentials(profileName string) error {
-	// Force re-login to refresh
-	return sm.Login(profileName)
 }
 
 // GetCredentialExpiry returns when credentials expire for a profile
@@ -261,55 +217,4 @@ func (sm *SSOManager) ValidateProfile(profileName string) error {
 	return nil
 }
 
-// GetProfilesByStartURL groups profiles by their SSO start URL
-func (sm *SSOManager) GetProfilesByStartURL() (map[string][]Profile, error) {
-	profiles, err := sm.GetSSOProfiles()
-	if err != nil {
-		return nil, err
-	}
 
-	result := make(map[string][]Profile)
-	for _, p := range profiles {
-		result[p.SSOStartURL] = append(result[p.SSOStartURL], p)
-	}
-
-	return result, nil
-}
-
-// GetAccountsForStartURL returns unique account IDs for a start URL
-func (sm *SSOManager) GetAccountsForStartURL(startURL string) ([]string, error) {
-	profiles, err := sm.GetSSOProfiles()
-	if err != nil {
-		return nil, err
-	}
-
-	accountSet := make(map[string]bool)
-	for _, p := range profiles {
-		if p.SSOStartURL == startURL && p.SSOAccountID != "" {
-			accountSet[p.SSOAccountID] = true
-		}
-	}
-
-	accounts := make([]string, 0, len(accountSet))
-	for acc := range accountSet {
-		accounts = append(accounts, acc)
-	}
-
-	return accounts, nil
-}
-
-// FormatProfileInfo returns a formatted string with profile details
-func FormatProfileInfo(p Profile) string {
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Profile: %s\n", p.Name)
-	if p.Region != "" {
-		fmt.Fprintf(&sb, "  Region: %s\n", p.Region)
-	}
-	if p.IsSSO {
-		fmt.Fprintf(&sb, "  SSO Start URL: %s\n", p.SSOStartURL)
-		fmt.Fprintf(&sb, "  SSO Region: %s\n", p.SSORegion)
-		fmt.Fprintf(&sb, "  Account ID: %s\n", p.SSOAccountID)
-		fmt.Fprintf(&sb, "  Role: %s\n", p.SSORoleName)
-	}
-	return sb.String()
-}

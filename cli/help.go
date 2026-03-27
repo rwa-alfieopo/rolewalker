@@ -44,6 +44,9 @@ Database:
   db, d connect <env>     Connect to database via interactive psql
     --write                 Connect to write node (default: read)
     --command               Connect to command database (default: query)
+    --readonly, --ro        Connect as read-only user (IAM auth)
+    --admin                 Connect as admin user (IAM auth)
+    --iam                   Force IAM authentication
   db backup <env>         Backup database to local file
     --output, -o <file>     Output file path (required)
     --schema-only           Backup schema only, no data
@@ -58,6 +61,7 @@ Redis:
 Kafka (MSK):
   msk, m ui <env>         Start Kafka UI for MSK cluster
     --port <port>           Local port (default: 8080)
+  msk connect <env>       Interactive Kafka CLI session (IAM auth)
   msk stop <env>          Stop the Kafka UI pod
 
 Maintenance:

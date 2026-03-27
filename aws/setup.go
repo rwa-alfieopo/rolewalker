@@ -284,19 +284,25 @@ func (sm *SetupManager) updateKubeconfig(clusterName, profileName string) error 
 
 // writeTempSSOConfig writes a minimal ~/.aws/config with an sso-session
 // and a temporary "rw-setup" profile for the initial login.
+// It backs up the existing config first.
 func (sm *SetupManager) writeTempSSOConfig(sessionName, startURL, ssoRegion string) error {
 	cm, err := NewConfigManager()
 	if err != nil {
 		return err
 	}
 
-	// Read existing config to preserve it
+	// Back up existing config if it exists
 	existing, _ := os.ReadFile(cm.configPath)
+	if len(existing) > 0 {
+		backupPath := cm.configPath + ".bak"
+		if err := os.WriteFile(backupPath, existing, 0600); err != nil {
+			return fmt.Errorf("failed to backup existing config: %w", err)
+		}
+		fmt.Printf("  Backed up existing config to: %s\n", backupPath)
+	}
 
-	// Only add our temp profile if it doesn't already exist
-	if !strings.Contains(string(existing), "[profile rw-setup]") {
-		addition := fmt.Sprintf(`
-[sso-session %s]
+	// Write a clean minimal config for SSO login only
+	content := fmt.Sprintf(`[sso-session %s]
 sso_start_url = %s
 sso_region = %s
 sso_registration_scopes = sso:account:access
@@ -308,13 +314,7 @@ sso_role_name = placeholder
 region = %s
 `, sessionName, startURL, ssoRegion, sessionName, sm.region)
 
-		content := string(existing) + addition
-		if err := os.WriteFile(cm.configPath, []byte(content), 0600); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return os.WriteFile(cm.configPath, []byte(content), 0600)
 }
 
 // writeAWSConfig generates the full ~/.aws/config from discovered profiles.

@@ -30,7 +30,6 @@ func (c *CLI) setup(args []string) error {
 	}
 
 	if startURL == "" {
-		fmt.Printf("SSO Start URL [%s]: ", cfg.SSMPathPrefix)
 		fmt.Print("Enter your AWS SSO start URL\n")
 		fmt.Print("  (e.g. https://d-9c67711d98.awsapps.com/start/#)\n")
 		fmt.Print("  URL: ")

@@ -28,17 +28,9 @@ func (ps *ProfileSwitcher) SwitchProfile(profileName string) error {
 		return err
 	}
 
-	// Find the target profile
-	var targetProfile *Profile
-	for _, p := range profiles {
-		if p.Name == profileName {
-			targetProfile = &p
-			break
-		}
-	}
-
-	if targetProfile == nil {
-		return fmt.Errorf("profile '%s' not found", profileName)
+	targetProfile, err := FindProfileByName(profiles, profileName)
+	if err != nil {
+		return err
 	}
 
 	// Update the [default] section in config using shared helper
@@ -147,16 +139,9 @@ func (ps *ProfileSwitcher) ExportEnvironment(profileName string) (map[string]str
 		return nil, err
 	}
 
-	var profile *Profile
-	for _, p := range profiles {
-		if p.Name == profileName {
-			profile = &p
-			break
-		}
-	}
-
-	if profile == nil {
-		return nil, fmt.Errorf("profile '%s' not found", profileName)
+	profile, err := FindProfileByName(profiles, profileName)
+	if err != nil {
+		return nil, err
 	}
 
 	env := make(map[string]string)
@@ -170,6 +155,30 @@ func (ps *ProfileSwitcher) ExportEnvironment(profileName string) (map[string]str
 	return env, nil
 }
 
+// shellExportVar returns a shell-appropriate export statement.
+func shellExportVar(shell, key, value string) string {
+	switch shell {
+	case "powershell", "pwsh":
+		return fmt.Sprintf("$env:%s = '%s'\n", key, value)
+	case "cmd":
+		return fmt.Sprintf("set %s=%s\n", key, value)
+	default:
+		return fmt.Sprintf("export %s='%s'\n", key, value)
+	}
+}
+
+// shellUnsetVar returns a shell-appropriate unset statement.
+func shellUnsetVar(shell, key string) string {
+	switch shell {
+	case "powershell", "pwsh":
+		return fmt.Sprintf("Remove-Item Env:%s -ErrorAction SilentlyContinue\n", key)
+	case "cmd":
+		return fmt.Sprintf("set %s=\n", key)
+	default:
+		return fmt.Sprintf("unset %s\n", key)
+	}
+}
+
 // GenerateShellExport generates shell export commands
 func (ps *ProfileSwitcher) GenerateShellExport(profileName string, shell string) (string, error) {
 	env, err := ps.ExportEnvironment(profileName)
@@ -178,20 +187,8 @@ func (ps *ProfileSwitcher) GenerateShellExport(profileName string, shell string)
 	}
 
 	var sb strings.Builder
-
-	switch shell {
-	case "powershell", "pwsh":
-		for k, v := range env {
-			fmt.Fprintf(&sb, "$env:%s = '%s'\n", k, v)
-		}
-	case "cmd":
-		for k, v := range env {
-			fmt.Fprintf(&sb, "set %s=%s\n", k, v)
-		}
-	default: // bash, zsh, sh
-		for k, v := range env {
-			fmt.Fprintf(&sb, "export %s='%s'\n", k, v)
-		}
+	for k, v := range env {
+		sb.WriteString(shellExportVar(shell, k, v))
 	}
 
 	return sb.String(), nil
@@ -202,20 +199,8 @@ func (ps *ProfileSwitcher) ClearEnvironment(shell string) string {
 	vars := []string{"AWS_PROFILE", "AWS_DEFAULT_REGION", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}
 
 	var sb strings.Builder
-
-	switch shell {
-	case "powershell", "pwsh":
-		for _, v := range vars {
-			fmt.Fprintf(&sb, "Remove-Item Env:%s -ErrorAction SilentlyContinue\n", v)
-		}
-	case "cmd":
-		for _, v := range vars {
-			fmt.Fprintf(&sb, "set %s=\n", v)
-		}
-	default:
-		for _, v := range vars {
-			fmt.Fprintf(&sb, "unset %s\n", v)
-		}
+	for _, v := range vars {
+		sb.WriteString(shellUnsetVar(shell, v))
 	}
 
 	return sb.String()

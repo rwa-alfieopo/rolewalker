@@ -9,7 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"rolewalkers/internal/utils"
-	"strings"
+	"slices"
 )
 
 // PodSpec describes a temporary Kubernetes pod to run via kubectl.
@@ -146,8 +146,12 @@ func buildOverrides(podName string, spec PodSpec) string {
 
 	if len(spec.Env) > 0 {
 		var envVars []map[string]string
-		// Sort keys for deterministic output
-		for _, k := range sortedKeys(spec.Env) {
+		keys := make([]string, 0, len(spec.Env))
+		for k := range spec.Env {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys)
+		for _, k := range keys {
 			envVars = append(envVars, map[string]string{
 				"name":  k,
 				"value": spec.Env[k],
@@ -164,19 +168,4 @@ func buildOverrides(podName string, spec PodSpec) string {
 
 	data, _ := json.Marshal(override)
 	return string(data)
-}
-
-// sortedKeys returns map keys in sorted order.
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	// Simple insertion sort — maps are small
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && strings.Compare(keys[j-1], keys[j]) > 0; j-- {
-			keys[j-1], keys[j] = keys[j], keys[j-1]
-		}
-	}
-	return keys
 }

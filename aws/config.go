@@ -88,6 +88,16 @@ func (cm *ConfigManager) GetProfiles() ([]Profile, error) {
 	return result, nil
 }
 
+// FindProfileByName returns the profile with the given name, or an error if not found.
+func FindProfileByName(profiles []Profile, name string) (*Profile, error) {
+	for i := range profiles {
+		if profiles[i].Name == name {
+			return &profiles[i], nil
+		}
+	}
+	return nil, fmt.Errorf("profile '%s' not found", name)
+}
+
 func (cm *ConfigManager) parseConfigFile(profiles map[string]*Profile) error {
 	file, err := os.Open(cm.configPath)
 	if err != nil {

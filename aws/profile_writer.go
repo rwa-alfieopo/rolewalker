@@ -3,7 +3,7 @@ package aws
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"rolewalkers/internal/utils"
 	"strings"
 )
 
@@ -82,25 +82,15 @@ func applyProfileEnv(profileName, region string) error {
 // ~/.rolewalkers/active_identity. Replaces the old separate
 // active_profile and active_role files.
 func writeActiveIdentityFile(profileName string) error {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
+	data := []byte(profileName)
 
-	rwDir := filepath.Join(homeDir, ".rolewalkers")
-	if err := os.MkdirAll(rwDir, 0700); err != nil {
-		return err
-	}
-
-	// Write unified file
-	activeFile := filepath.Join(rwDir, "active_identity")
-	if err := os.WriteFile(activeFile, []byte(profileName), 0600); err != nil {
+	if err := utils.WriteRoleWalkersFile("active_identity", data); err != nil {
 		return err
 	}
 
 	// Also write legacy files for backward compatibility
-	_ = os.WriteFile(filepath.Join(rwDir, "active_profile"), []byte(profileName), 0600)
-	_ = os.WriteFile(filepath.Join(rwDir, "active_role"), []byte(profileName), 0600)
+	_ = utils.WriteRoleWalkersFile("active_profile", data)
+	_ = utils.WriteRoleWalkersFile("active_role", data)
 
 	return nil
 }
@@ -109,15 +99,8 @@ func writeActiveIdentityFile(profileName string) error {
 // It reads from the unified active_identity file, falling back to
 // the legacy active_profile file for backward compatibility.
 func (cm *ConfigManager) GetActiveProfile() string {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "default"
-	}
-
-	rwDir := filepath.Join(homeDir, ".rolewalkers")
-
 	// Try unified file first
-	data, err := os.ReadFile(filepath.Join(rwDir, "active_identity"))
+	data, err := utils.ReadRoleWalkersFile("active_identity")
 	if err == nil {
 		if v := strings.TrimSpace(string(data)); v != "" {
 			return v
@@ -125,9 +108,11 @@ func (cm *ConfigManager) GetActiveProfile() string {
 	}
 
 	// Fall back to legacy file
-	data, err = os.ReadFile(filepath.Join(rwDir, "active_profile"))
+	data, err = utils.ReadRoleWalkersFile("active_profile")
 	if err == nil {
-		return strings.TrimSpace(string(data))
+		if v := strings.TrimSpace(string(data)); v != "" {
+			return v
+		}
 	}
 
 	return "default"

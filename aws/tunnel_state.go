@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"rolewalkers/internal/utils"
 	"sync"
 	"syscall"
 	"time"
@@ -39,14 +40,9 @@ type TunnelState struct {
 
 // NewTunnelState creates a new tunnel state manager
 func NewTunnelState() (*TunnelState, error) {
-	homeDir, err := os.UserHomeDir()
+	stateDir, err := utils.RoleWalkersDir()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	stateDir := filepath.Join(homeDir, ".rolewalkers")
-	if err := os.MkdirAll(stateDir, 0700); err != nil {
-		return nil, fmt.Errorf("failed to create state directory: %w", err)
+		return nil, err
 	}
 
 	ts := &TunnelState{

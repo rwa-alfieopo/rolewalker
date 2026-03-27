@@ -56,16 +56,9 @@ func (sm *SSOManager) Login(profileName string) error {
 		return err
 	}
 
-	var profile *Profile
-	for _, p := range profiles {
-		if p.Name == profileName {
-			profile = &p
-			break
-		}
-	}
-
-	if profile == nil {
-		return fmt.Errorf("profile '%s' not found", profileName)
+	profile, err := FindProfileByName(profiles, profileName)
+	if err != nil {
+		return err
 	}
 
 	if !profile.IsSSO {
@@ -131,14 +124,13 @@ func (sm *SSOManager) IsLoggedIn(profileName string) bool {
 		return false
 	}
 
-	for _, p := range profiles {
-		if p.Name == profileName && p.IsSSO {
-			_, err := sm.GetCachedToken(p.SSOStartURL)
-			return err == nil
-		}
+	p, err := FindProfileByName(profiles, profileName)
+	if err != nil || !p.IsSSO {
+		return false
 	}
 
-	return false
+	_, err = sm.GetCachedToken(p.SSOStartURL)
+	return err == nil
 }
 
 // Logout clears SSO session
@@ -225,17 +217,19 @@ func (sm *SSOManager) GetCredentialExpiry(profileName string) (*time.Time, error
 		return nil, err
 	}
 
-	for _, p := range profiles {
-		if p.Name == profileName && p.IsSSO {
-			cache, err := sm.GetCachedToken(p.SSOStartURL)
-			if err != nil {
-				return nil, err
-			}
-			return &cache.ExpiresAt, nil
-		}
+	p, err := FindProfileByName(profiles, profileName)
+	if err != nil {
+		return nil, err
+	}
+	if !p.IsSSO {
+		return nil, fmt.Errorf("profile '%s' is not an SSO profile", profileName)
 	}
 
-	return nil, fmt.Errorf("profile not found or not SSO")
+	cache, err := sm.GetCachedToken(p.SSOStartURL)
+	if err != nil {
+		return nil, err
+	}
+	return &cache.ExpiresAt, nil
 }
 
 // ValidateProfile checks if a profile configuration is valid
@@ -245,27 +239,26 @@ func (sm *SSOManager) ValidateProfile(profileName string) error {
 		return err
 	}
 
-	for _, p := range profiles {
-		if p.Name == profileName {
-			if p.IsSSO {
-				if p.SSOStartURL == "" && p.SSOSession == "" {
-					return fmt.Errorf("missing sso_start_url or sso_session")
-				}
-				if p.SSORegion == "" && p.SSOSession == "" {
-					return fmt.Errorf("missing sso_region")
-				}
-				if p.SSOAccountID == "" {
-					return fmt.Errorf("missing sso_account_id")
-				}
-				if p.SSORoleName == "" {
-					return fmt.Errorf("missing sso_role_name")
-				}
-			}
-			return nil
-		}
+	p, err := FindProfileByName(profiles, profileName)
+	if err != nil {
+		return err
 	}
 
-	return fmt.Errorf("profile '%s' not found", profileName)
+	if p.IsSSO {
+		if p.SSOStartURL == "" && p.SSOSession == "" {
+			return fmt.Errorf("missing sso_start_url or sso_session")
+		}
+		if p.SSORegion == "" && p.SSOSession == "" {
+			return fmt.Errorf("missing sso_region")
+		}
+		if p.SSOAccountID == "" {
+			return fmt.Errorf("missing sso_account_id")
+		}
+		if p.SSORoleName == "" {
+			return fmt.Errorf("missing sso_role_name")
+		}
+	}
+	return nil
 }
 
 // GetProfilesByStartURL groups profiles by their SSO start URL

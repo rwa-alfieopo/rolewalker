@@ -2,9 +2,8 @@ package aws
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
+	"rolewalkers/internal/utils"
 )
 
 // safeShellValue matches only safe characters for shell variable values
@@ -21,16 +20,6 @@ func writeEnvFile(profileName, region string) error {
 		return fmt.Errorf("invalid region for shell export: %s", region)
 	}
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-
-	rwDir := filepath.Join(homeDir, ".rolewalkers")
-	if err := os.MkdirAll(rwDir, 0700); err != nil {
-		return err
-	}
-
 	content := fmt.Sprintf("export AWS_PROFILE='%s'\n", profileName)
 	content += "unset AWS_ACCESS_KEY_ID\n"
 	content += "unset AWS_SECRET_ACCESS_KEY\n"
@@ -40,5 +29,5 @@ func writeEnvFile(profileName, region string) error {
 		content += fmt.Sprintf("export AWS_REGION='%s'\n", region)
 	}
 
-	return os.WriteFile(filepath.Join(rwDir, "env"), []byte(content), 0600)
+	return utils.WriteRoleWalkersFile("env", []byte(content))
 }

@@ -106,11 +106,15 @@ Configuration:
     --shell <shell>         Override shell detection
 
 Utilities:
-  web, w                  Start web UI for account/role management
-    --port <port>           Local port (default: 8080)
   keygen, kg [count]      Generate cryptographically secure API keys
   help, -h                Show this help message
   example, ex             Show usage examples
+
+System Tray:
+  tray start              Start the system tray app in the background
+  tray stop               Stop the running tray app
+  tray status             Check if the tray app is running
+  tray restart            Restart the tray app
 
 Tunnel Services: ` + aws.DefaultServices + `
 gRPC Services:   ` + aws.DefaultGRPCServices + `

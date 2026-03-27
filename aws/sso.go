@@ -2,7 +2,7 @@ package aws
 
 import (
 	"context"
-	"crypto/sha256"
+	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -95,19 +96,63 @@ func (sm *SSOManager) LoginWithBrowser(profileName string) error {
 	return sm.Login(profileName)
 }
 
-// GetCachedToken retrieves cached SSO token for a start URL
+// GetCachedToken retrieves cached SSO token for a profile.
+// AWS CLI uses different cache keys depending on config style:
+//   - sso_session profiles: SHA1(session_name)
+//   - direct sso_start_url profiles: SHA1(start_url)
 func (sm *SSOManager) GetCachedToken(startURL string) (*SSOCache, error) {
-	hash := sha256.Sum256([]byte(startURL))
-	cacheFile := filepath.Join(sm.cacheDir, hex.EncodeToString(hash[:])+".json")
+	return sm.findCachedToken(startURL)
+}
+
+// findCachedToken tries to find a valid SSO token in the cache.
+// It checks the given key first, then scans all cache files as fallback.
+func (sm *SSOManager) findCachedToken(cacheKey string) (*SSOCache, error) {
+	// Try direct lookup with SHA1 (AWS CLI's algorithm)
+	if cache, err := sm.readCacheFile(sha1Hex(cacheKey)); err == nil {
+		return cache, nil
+	}
+
+	// Fallback: scan all cache files for a valid token matching this start URL
+	// (handles cases where the cache key doesn't match our expectation)
+	entries, err := os.ReadDir(sm.cacheDir)
+	if err != nil {
+		return nil, fmt.Errorf("no cached token found")
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !isJSONFile(entry.Name()) {
+			continue
+		}
+		cache, err := sm.readCacheFile(trimJSONExt(entry.Name()))
+		if err != nil {
+			continue
+		}
+		// Match by start URL if present
+		if cache.StartURL != "" && cache.StartURL == cacheKey {
+			return cache, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no valid cached token found")
+}
+
+// readCacheFile reads and validates a single SSO cache file by its hash name.
+func (sm *SSOManager) readCacheFile(hashName string) (*SSOCache, error) {
+	cacheFile := filepath.Join(sm.cacheDir, hashName+".json")
 
 	data, err := os.ReadFile(cacheFile)
 	if err != nil {
-		return nil, fmt.Errorf("no cached token found: %w", err)
+		return nil, err
 	}
 
 	var cache SSOCache
 	if err := json.Unmarshal(data, &cache); err != nil {
-		return nil, fmt.Errorf("failed to parse cache: %w", err)
+		return nil, err
+	}
+
+	// Must have an access token to be a valid SSO session cache
+	if cache.AccessToken == "" {
+		return nil, fmt.Errorf("not an SSO token cache file")
 	}
 
 	if time.Now().After(cache.ExpiresAt) {
@@ -117,7 +162,8 @@ func (sm *SSOManager) GetCachedToken(startURL string) (*SSOCache, error) {
 	return &cache, nil
 }
 
-// IsLoggedIn checks if SSO session is valid for a profile
+// IsLoggedIn checks if SSO session is valid for a profile.
+// Profiles using sso_session share a single token — if one is logged in, all are.
 func (sm *SSOManager) IsLoggedIn(profileName string) bool {
 	profiles, err := sm.configManager.GetProfiles()
 	if err != nil {
@@ -129,7 +175,14 @@ func (sm *SSOManager) IsLoggedIn(profileName string) bool {
 		return false
 	}
 
-	_, err = sm.GetCachedToken(p.SSOStartURL)
+	// Try sso_session name first (AWS CLI caches by session name)
+	if p.SSOSession != "" {
+		_, err = sm.findCachedToken(p.SSOSession)
+		return err == nil
+	}
+
+	// Fall back to start URL for direct sso_start_url profiles
+	_, err = sm.findCachedToken(p.SSOStartURL)
 	return err == nil
 }
 
@@ -181,7 +234,13 @@ func (sm *SSOManager) GetCredentialExpiry(profileName string) (*time.Time, error
 		return nil, fmt.Errorf("profile '%s' is not an SSO profile", profileName)
 	}
 
-	cache, err := sm.GetCachedToken(p.SSOStartURL)
+	// Try sso_session name first
+	cacheKey := p.SSOStartURL
+	if p.SSOSession != "" {
+		cacheKey = p.SSOSession
+	}
+
+	cache, err := sm.findCachedToken(cacheKey)
 	if err != nil {
 		return nil, err
 	}
@@ -217,4 +276,18 @@ func (sm *SSOManager) ValidateProfile(profileName string) error {
 	return nil
 }
 
+// --- Helpers ---
 
+// sha1Hex returns the hex-encoded SHA1 hash of s.
+func sha1Hex(s string) string {
+	h := sha1.Sum([]byte(s))
+	return hex.EncodeToString(h[:])
+}
+
+func isJSONFile(name string) bool {
+	return strings.HasSuffix(name, ".json")
+}
+
+func trimJSONExt(name string) string {
+	return strings.TrimSuffix(name, ".json")
+}

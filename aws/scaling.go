@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"rolewalkers/internal/config"
 	"rolewalkers/internal/db"
 	"strings"
 )
@@ -41,21 +42,23 @@ type HPAList struct {
 
 // NewScalingManager creates a new ScalingManager instance
 func NewScalingManager() *ScalingManager {
+	cfg := config.Get()
 	return &ScalingManager{
 		kubeManager:     NewKubeManager(),
 		profileSwitcher: nil,
 		configRepo:      nil,
-		namespace:       "zenith",
+		namespace:       cfg.Namespaces.App,
 	}
 }
 
 // NewScalingManagerWithDeps creates a new ScalingManager with shared dependencies
 func NewScalingManagerWithDeps(km *KubeManager, ps *ProfileSwitcher, repo *db.ConfigRepository) *ScalingManager {
+	cfg := config.Get()
 	return &ScalingManager{
 		kubeManager:     km,
 		profileSwitcher: ps,
 		configRepo:      repo,
-		namespace:       "zenith",
+		namespace:       cfg.Namespaces.App,
 	}
 }
 

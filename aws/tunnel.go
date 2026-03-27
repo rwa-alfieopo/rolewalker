@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"rolewalkers/internal/config"
 	"rolewalkers/internal/db"
 	"rolewalkers/internal/k8s"
 	"rolewalkers/internal/utils"
@@ -17,8 +18,10 @@ import (
 	"time"
 )
 
-// TunnelAccessNamespace is the Kubernetes namespace used for tunnel pods
-const TunnelAccessNamespace = "tunnel-access"
+// TunnelAccessNamespace returns the configured tunnel namespace.
+func TunnelAccessNamespace() string {
+	return config.Get().Namespaces.Tunnel
+}
 
 // TunnelManager handles tunnel operations
 type TunnelManager struct {
@@ -170,12 +173,12 @@ func (tm *TunnelManager) getRemoteHost(service, env string, config TunnelConfig)
 
 // createSocatPod creates a socat pod for tunneling
 func (tm *TunnelManager) createSocatPod(podName, remoteHost string, remotePort int) error {
-	// Build labels with creator identity
+	cfg := config.Get()
 	labels := k8s.CreatorLabelsWithName(podName)
 
-	cmd := exec.Command("kubectl", "-n", TunnelAccessNamespace, "run", podName,
+	cmd := exec.Command("kubectl", "-n", TunnelAccessNamespace(), "run", podName,
 		"--port", fmt.Sprintf("%d", remotePort),
-		"--image", "alpine/socat",
+		"--image", cfg.Images.Socat,
 		"--image-pull-policy", "IfNotPresent",
 		"--labels", labels,
 		"--command", "--",
@@ -195,7 +198,7 @@ func (tm *TunnelManager) createSocatPod(podName, remoteHost string, remotePort i
 
 // waitForPod waits for a pod to be ready
 func (tm *TunnelManager) waitForPod(podName string) error {
-	cmd := exec.Command("kubectl", "-n", TunnelAccessNamespace, "wait", "pods",
+	cmd := exec.Command("kubectl", "-n", TunnelAccessNamespace(), "wait", "pods",
 		"-l", fmt.Sprintf("name=%s", podName),
 		"--for", "condition=Ready",
 		"--timeout", "90s",
@@ -232,7 +235,7 @@ func (tm *TunnelManager) startPortForward(tunnel *TunnelInfo) error {
 		}
 	}()
 
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", TunnelAccessNamespace, "port-forward",
+	cmd := exec.CommandContext(ctx, "kubectl", "-n", TunnelAccessNamespace(), "port-forward",
 		fmt.Sprintf("pod/%s", tunnel.PodName),
 		fmt.Sprintf("%d:%d", tunnel.LocalPort, tunnel.RemotePort),
 	)
@@ -261,7 +264,7 @@ func (tm *TunnelManager) cleanup(tunnel *TunnelInfo) {
 
 // deletePod deletes a kubernetes pod
 func (tm *TunnelManager) deletePod(podName string) error {
-	cmd := exec.Command("kubectl", "-n", TunnelAccessNamespace, "delete", "pod", podName)
+	cmd := exec.Command("kubectl", "-n", TunnelAccessNamespace(), "delete", "pod", podName)
 	return cmd.Run()
 }
 
@@ -347,7 +350,7 @@ func (tm *TunnelManager) List() string {
 
 // checkPodStatus checks if a pod is running
 func (tm *TunnelManager) checkPodStatus(podName string) string {
-	cmd := exec.Command("kubectl", "-n", TunnelAccessNamespace, "get", "pod", podName,
+	cmd := exec.Command("kubectl", "-n", TunnelAccessNamespace(), "get", "pod", podName,
 		"-o", "jsonpath={.status.phase}")
 
 	var out bytes.Buffer

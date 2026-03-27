@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"rolewalkers/aws"
+	appconfig "rolewalkers/internal/config"
 	"rolewalkers/internal/db"
 	"strings"
 )
@@ -266,7 +267,8 @@ func (c *CLI) logoutCmd(args []string) error {
 
 // extractAccountName extracts a friendly account name from the profile name
 func (c *CLI) extractAccountName(profileName string) string {
-	name := strings.TrimPrefix(profileName, "zenith-")
+	cfg := appconfig.Get()
+	name := strings.TrimPrefix(profileName, cfg.ProfilePrefix)
 	if len(name) > 0 {
 		name = strings.ToUpper(name[:1]) + name[1:]
 	}

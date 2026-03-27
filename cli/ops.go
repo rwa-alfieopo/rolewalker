@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	appconfig "rolewalkers/internal/config"
 	"rolewalkers/internal/utils"
 	"strings"
 )
@@ -77,7 +78,7 @@ func (c *CLI) maintenanceToggle(args []string) error {
 	if disable {
 		operation = "Disable Maintenance Mode"
 	}
-	if !utils.ConfirmProductionOperation(env, operation) {
+	if !confirmProd(env, operation) {
 		fmt.Println("Operation cancelled.")
 		return nil
 	}
@@ -106,7 +107,7 @@ func (c *CLI) scale(args []string) error {
 	}
 
 	if preset != "" {
-		if !utils.ConfirmProductionOperation(env, fmt.Sprintf("Scale using preset '%s'", preset)) {
+		if !confirmProd(env, fmt.Sprintf("Scale using preset '%s'", preset)) {
 			fmt.Println("Operation cancelled.")
 			return nil
 		}
@@ -126,7 +127,7 @@ func (c *CLI) scale(args []string) error {
 			return fmt.Errorf("--min and --max are required when using --service")
 		}
 
-		if !utils.ConfirmProductionOperation(env, fmt.Sprintf("Scale service '%s' to min=%d max=%d", service, minReplicas, maxReplicas)) {
+		if !confirmProd(env, fmt.Sprintf("Scale service '%s' to min=%d max=%d", service, minReplicas, maxReplicas)) {
 			fmt.Println("Operation cancelled.")
 			return nil
 		}
@@ -279,4 +280,10 @@ func (c *CLI) replicationDelete(args []string) error {
 	}
 
 	return c.replicationManager.Delete(deploymentID, deleteTarget)
+}
+
+// confirmProd wraps ConfirmProductionOperation with the configured production env list.
+func confirmProd(env, operation string) bool {
+	cfg := appconfig.Get()
+	return utils.ConfirmProductionOperation(env, operation, cfg.ProductionEnvs...)
 }

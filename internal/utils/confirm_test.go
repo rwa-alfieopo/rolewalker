@@ -3,6 +3,8 @@ package utils
 import "testing"
 
 func TestIsProductionEnvironment(t *testing.T) {
+	prodEnvs := []string{"prod", "preprod", "trg", "live"}
+
 	tests := []struct {
 		name     string
 		env      string
@@ -23,7 +25,7 @@ func TestIsProductionEnvironment(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := IsProductionEnvironment(tt.env)
+			result := IsProductionEnvironment(tt.env, prodEnvs...)
 			if result != tt.expected {
 				t.Errorf("IsProductionEnvironment(%q) = %v, want %v", tt.env, result, tt.expected)
 			}

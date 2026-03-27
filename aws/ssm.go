@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"rolewalkers/internal/awscli"
+	"rolewalkers/internal/config"
 	"rolewalkers/internal/db"
 	"strings"
 )
@@ -17,12 +18,14 @@ type SSMManager struct {
 
 // NewSSMManager creates a new SSM manager
 func NewSSMManager() *SSMManager {
-	return &SSMManager{region: "eu-west-2", configRepo: nil}
+	cfg := config.Get()
+	return &SSMManager{region: cfg.Region, configRepo: nil}
 }
 
 // NewSSMManagerWithRepo creates a new SSM manager with a shared config repository
 func NewSSMManagerWithRepo(repo *db.ConfigRepository) *SSMManager {
-	return &SSMManager{region: "eu-west-2", configRepo: repo}
+	cfg := config.Get()
+	return &SSMManager{region: cfg.Region, configRepo: repo}
 }
 
 // ssmResponse represents the AWS SSM get-parameter response
@@ -76,27 +79,27 @@ func (sm *SSMManager) GetEndpoint(env, service string) (string, error) {
 func (sm *SSMManager) getParameterPath(env, service string) string {
 	service = strings.ToLower(service)
 	env = strings.ToLower(env)
+	cfg := config.Get()
 
 	switch service {
 	case "db", "database":
-		// Default to query/read endpoint
-		return fmt.Sprintf("/%s/zenith/database/query/db-read-endpoint", env)
+		return cfg.SSMPath(env, "database/query/db-read-endpoint")
 	case "db-write":
-		return fmt.Sprintf("/%s/zenith/database/query/db-write-endpoint", env)
+		return cfg.SSMPath(env, "database/query/db-write-endpoint")
 	case "db-command":
-		return fmt.Sprintf("/%s/zenith/database/command/db-write-endpoint", env)
+		return cfg.SSMPath(env, "database/command/db-write-endpoint")
 	case "db-command-read":
-		return fmt.Sprintf("/%s/zenith/database/command/db-read-endpoint", env)
+		return cfg.SSMPath(env, "database/command/db-read-endpoint")
 	case "redis":
-		return fmt.Sprintf("/%s/zenith/redis/cluster-endpoint", env)
+		return cfg.SSMPath(env, "redis/cluster-endpoint")
 	case "elasticsearch", "es":
-		return fmt.Sprintf("/%s/zenith/elasticsearch/cluster-endpoint", env)
+		return cfg.SSMPath(env, "elasticsearch/cluster-endpoint")
 	case "kafka":
-		return fmt.Sprintf("/%s/zenith/kafka/broker", env)
+		return cfg.SSMPath(env, "kafka/broker")
 	case "msk":
-		return fmt.Sprintf("/%s/zenith/msk/brokers-iam-endpoint", env)
+		return cfg.SSMPath(env, "msk/brokers-iam-endpoint")
 	case "rabbitmq":
-		return fmt.Sprintf("/%s/zenith/rabbitmq/brokers-console-url", env)
+		return cfg.SSMPath(env, "rabbitmq/brokers-console-url")
 	default:
 		return ""
 	}
@@ -104,6 +107,7 @@ func (sm *SSMManager) getParameterPath(env, service string) string {
 
 // GetDatabaseEndpoint retrieves database endpoint with node type (read/write) and db type (query/command)
 func (sm *SSMManager) GetDatabaseEndpoint(env, nodeType, dbType string) (string, error) {
+	cfg := config.Get()
 	nodeType = strings.ToLower(nodeType)
 	dbType = strings.ToLower(dbType)
 
@@ -114,7 +118,7 @@ func (sm *SSMManager) GetDatabaseEndpoint(env, nodeType, dbType string) (string,
 		dbType = "query"
 	}
 
-	paramPath := fmt.Sprintf("/%s/zenith/database/%s/db-%s-endpoint", env, dbType, nodeType)
+	paramPath := cfg.SSMPath(env, fmt.Sprintf("database/%s/db-%s-endpoint", dbType, nodeType))
 	return sm.GetParameter(paramPath)
 }
 

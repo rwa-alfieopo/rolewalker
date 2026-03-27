@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"rolewalkers/internal/config"
 	"rolewalkers/internal/k8s"
 	"rolewalkers/internal/utils"
 	"strings"
@@ -42,7 +43,8 @@ func (mm *MSKManager) StartUI(env string, localPort int) error {
 
 	// Get MSK brokers from SSM
 	fmt.Println("Fetching MSK brokers endpoint...")
-	brokersPath := fmt.Sprintf("/%s/zenith/msk/brokers-iam-endpoint", env)
+	cfg := config.Get()
+	brokersPath := cfg.SSMPath(env, "msk/brokers-iam-endpoint")
 	brokers, err := mm.ssmManager.GetParameter(brokersPath)
 	if err != nil {
 		return fmt.Errorf("failed to get MSK brokers: %w", err)
@@ -121,12 +123,12 @@ func (mm *MSKManager) StopUI(env string) error {
 
 // createKafkaUIPod creates the Kafka UI pod with IAM authentication
 func (mm *MSKManager) createKafkaUIPod(podName, env, brokers string) error {
-	// Build labels with creator identity
+	cfg := config.Get()
 	labels := k8s.CreatorLabels()
 
 	cmd := exec.Command("kubectl", "run", podName,
 		"--restart=Never",
-		"--image=provectuslabs/kafka-ui:latest",
+		fmt.Sprintf("--image=%s", cfg.Images.KafkaUI),
 		"--labels", labels,
 		fmt.Sprintf("--env=KAFKA_CLUSTERS_0_NAME=%s", env),
 		fmt.Sprintf("--env=KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=%s", brokers),
@@ -198,9 +200,9 @@ func (mm *MSKManager) ConnectCLI(env string) error {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 
-	// Get MSK brokers from SSM
 	fmt.Println("Fetching MSK brokers endpoint...")
-	brokersPath := fmt.Sprintf("/%s/zenith/msk/brokers-iam-endpoint", env)
+	cfg := config.Get()
+	brokersPath := cfg.SSMPath(env, "msk/brokers-iam-endpoint")
 	brokers, err := mm.ssmManager.GetParameter(brokersPath)
 	if err != nil {
 		return fmt.Errorf("failed to get MSK brokers: %w", err)
@@ -243,8 +245,8 @@ exec /bin/bash
 
 	return k8s.RunPod(k8s.PodSpec{
 		NamePrefix:  "msk-cli",
-		Image:       "confluentinc/cp-kafka:7.7.6",
-		Namespace:   TunnelAccessNamespace,
+		Image:       cfg.Images.KafkaCLI,
+		Namespace:   TunnelAccessNamespace(),
 		Interactive: true,
 		Command:     []string{"/bin/bash", "-c", initScript},
 		Env: map[string]string{

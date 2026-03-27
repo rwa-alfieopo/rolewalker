@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"rolewalkers/aws"
+	appconfig "rolewalkers/internal/config"
 	"rolewalkers/internal/utils"
 	"strings"
 )
@@ -95,11 +96,8 @@ func (c *CLI) dbConnect(args []string) error {
 
 // isProdLikeEnv returns true for environments that have separate query/command clusters.
 func isProdLikeEnv(env string) bool {
-	switch strings.ToLower(env) {
-	case "prod", "qa", "stage", "preprod", "trg":
-		return true
-	}
-	return false
+	cfg := appconfig.Get()
+	return cfg.IsProdLikeEnv(strings.ToLower(env))
 }
 
 func (c *CLI) dbBackup(args []string) error {
@@ -147,7 +145,7 @@ func (c *CLI) dbRestore(args []string) error {
 	}
 
 	if !skipConfirm {
-		if !utils.ConfirmProductionOperation(config.Environment, "Database Restore") {
+		if !confirmProd(config.Environment, "Database Restore") {
 			fmt.Println("Operation cancelled.")
 			return nil
 		}

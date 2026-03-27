@@ -80,24 +80,22 @@ func ConfirmReplicationDelete(deploymentName string, deleteTarget bool) bool {
 	
 	return ConfirmAction(message)
 }
-// IsProductionEnvironment checks if the given environment is a production environment
-func IsProductionEnvironment(env string) bool {
-	prodEnvs := []string{"prod", "preprod", "trg", "live"}
+// IsProductionEnvironment checks if the given environment is a production environment.
+// prodEnvs is the list of environment names considered production.
+func IsProductionEnvironment(env string, prodEnvs ...string) bool {
 	envLower := strings.ToLower(env)
-	
 	for _, prodEnv := range prodEnvs {
 		if envLower == prodEnv {
 			return true
 		}
 	}
-	
 	return false
 }
 
 // ConfirmProductionOperation prompts for confirmation before executing operations in production
 // Returns true if user types 'yes', false otherwise
-func ConfirmProductionOperation(env, operation string) bool {
-	if !IsProductionEnvironment(env) {
+func ConfirmProductionOperation(env, operation string, prodEnvs ...string) bool {
+	if !IsProductionEnvironment(env, prodEnvs...) {
 		return true // No confirmation needed for non-production
 	}
 	

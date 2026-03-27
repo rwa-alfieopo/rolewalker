@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"rolewalkers/internal/awscli"
+	appconfig "rolewalkers/internal/config"
 	"rolewalkers/internal/k8s"
 	"rolewalkers/internal/utils"
 	"strings"
@@ -45,21 +46,21 @@ type dbCredentials struct {
 
 // resolveDBCredentials determines the DB user and fetches the appropriate credential.
 func (dm *DatabaseManager) resolveDBCredentials(env string, config DatabaseConfig) (*dbCredentials, error) {
+	cfg := appconfig.Get()
 	role := strings.ToLower(cmp.Or(config.Role, "master"))
 
 	if config.UseIAM || role == "readonly" || role == "admin" {
-		user := "zenith-ro"
+		user := cfg.Database.ReadOnlyUser
 		if role == "admin" {
-			user = "zenith-admin"
+			user = cfg.Database.AdminUser
 		}
 
-		// Need the RDS endpoint (not custom DNS) for token generation
 		rdsParamSuffix := "rds-reader-endpoint"
 		if config.NodeType == "write" || role == "admin" {
 			rdsParamSuffix = "rds-writer-endpoint"
 		}
 		dbType := cmp.Or(config.DBType, "query")
-		rdsPath := fmt.Sprintf("/%s/zenith/database/%s/%s", env, dbType, rdsParamSuffix)
+		rdsPath := cfg.SSMPath(env, fmt.Sprintf("database/%s/%s", dbType, rdsParamSuffix))
 		rdsEndpoint, err := dm.ssmManager.GetParameter(rdsPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get RDS endpoint for IAM auth: %w", err)
@@ -73,24 +74,25 @@ func (dm *DatabaseManager) resolveDBCredentials(env string, config DatabaseConfi
 		return &dbCredentials{User: user, Password: token, IsIAM: true}, nil
 	}
 
-	// Default: zenithmaster with password from SSM
+	// Default: master user with password from SSM
 	dbType := cmp.Or(config.DBType, "query")
-	passwordPath := fmt.Sprintf("/%s/zenith/database/%s/db-zenithmaster-password", env, dbType)
+	passwordPath := cfg.SSMPath(env, fmt.Sprintf("database/%s/db-%s-password", dbType, cfg.Database.MasterUser))
 	password, err := dm.ssmManager.GetParameter(passwordPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database password: %w", err)
 	}
 
-	return &dbCredentials{User: "zenithmaster", Password: password, IsIAM: false}, nil
+	return &dbCredentials{User: cfg.Database.MasterUser, Password: password, IsIAM: false}, nil
 }
 
 // generateIAMAuthToken generates an RDS IAM authentication token using the AWS CLI.
 func (dm *DatabaseManager) generateIAMAuthToken(rdsEndpoint, user string) (string, error) {
+	cfg := appconfig.Get()
 	cmd := awscli.CreateCommand("rds", "generate-db-auth-token",
 		"--hostname", rdsEndpoint,
-		"--port", "5432",
+		"--port", fmt.Sprintf("%d", cfg.Database.Port),
 		"--username", user,
-		"--region", "eu-west-2",
+		"--region", cfg.Region,
 	)
 
 	var out bytes.Buffer
@@ -167,10 +169,11 @@ func (dm *DatabaseManager) Connect(config DatabaseConfig) error {
 
 // runPsqlPod spawns an interactive psql pod
 func (dm *DatabaseManager) runPsqlPod(endpoint, user, password, sslMode string) error {
-	connStr := fmt.Sprintf("host=%s port=5432 dbname=postgres user=%s sslmode=%s", endpoint, user, sslMode)
+	cfg := appconfig.Get()
+	connStr := fmt.Sprintf("host=%s port=%d dbname=%s user=%s sslmode=%s", endpoint, cfg.Database.Port, cfg.Database.DefaultDB, user, sslMode)
 	return k8s.RunPod(k8s.PodSpec{
 		NamePrefix:  "psql",
-		Image:       "postgres:15-alpine",
+		Image:       cfg.Images.Postgres,
 		Interactive: true,
 		Command:     []string{"psql", connStr},
 		Env:         map[string]string{"PGPASSWORD": password},
@@ -210,9 +213,10 @@ func (dm *DatabaseManager) Backup(config BackupConfig) error {
 		return fmt.Errorf("failed to get database endpoint: %w", err)
 	}
 
-	// Get database password from SSM
+	// Get database password from SSM (backup)
 	fmt.Println("Fetching database credentials...")
-	passwordPath := fmt.Sprintf("/%s/zenith/database/query/db-zenithmaster-password", env)
+	cfg := appconfig.Get()
+	passwordPath := cfg.SSMPath(env, fmt.Sprintf("database/query/db-%s-password", cfg.Database.MasterUser))
 	password, err := dm.ssmManager.GetParameter(passwordPath)
 	if err != nil {
 		return fmt.Errorf("failed to get database password: %w", err)
@@ -234,12 +238,12 @@ func (dm *DatabaseManager) Backup(config BackupConfig) error {
 
 // runPgDumpPod spawns a temporary pod to run pg_dump and captures output to file
 func (dm *DatabaseManager) runPgDumpPod(endpoint, password string, config BackupConfig) (err error) {
-	// Build pg_dump arguments
+	cfg := appconfig.Get()
 	pgDumpArgs := []string{
 		"pg_dump",
 		"-h", endpoint,
-		"-U", "zenithmaster",
-		"-d", "zenith",
+		"-U", cfg.Database.MasterUser,
+		"-d", cfg.Project,
 	}
 	if config.SchemaOnly {
 		pgDumpArgs = append(pgDumpArgs, "--schema-only")
@@ -260,7 +264,7 @@ func (dm *DatabaseManager) runPgDumpPod(endpoint, password string, config Backup
 
 	runErr := k8s.RunPod(k8s.PodSpec{
 		NamePrefix: "pgdump",
-		Image:      "postgres:15-alpine",
+		Image:      cfg.Images.Postgres,
 		Command:    pgDumpArgs,
 		Env:        map[string]string{"PGPASSWORD": password},
 		Operation:  "backup",
@@ -307,9 +311,10 @@ func (dm *DatabaseManager) Restore(config RestoreConfig) error {
 		return fmt.Errorf("failed to get database endpoint: %w", err)
 	}
 
-	// Get database password from SSM
+	// Get database password from SSM (restore)
 	fmt.Println("Fetching database credentials...")
-	passwordPath := fmt.Sprintf("/%s/zenith/database/query/db-zenithmaster-password", env)
+	cfg := appconfig.Get()
+	passwordPath := cfg.SSMPath(env, fmt.Sprintf("database/query/db-%s-password", cfg.Database.MasterUser))
 	password, err := dm.ssmManager.GetParameter(passwordPath)
 	if err != nil {
 		return fmt.Errorf("failed to get database password: %w", err)
@@ -334,12 +339,12 @@ func (dm *DatabaseManager) Restore(config RestoreConfig) error {
 
 // runPsqlRestorePod spawns a temporary pod to run psql and pipes SQL file to stdin
 func (dm *DatabaseManager) runPsqlRestorePod(endpoint, password string, config RestoreConfig) error {
-	// Build psql arguments
+	cfg := appconfig.Get()
 	psqlArgs := []string{
 		"psql",
 		"-h", endpoint,
-		"-U", "zenithmaster",
-		"-d", "zenith",
+		"-U", cfg.Database.MasterUser,
+		"-d", cfg.Project,
 		"-v", "ON_ERROR_STOP=1",
 	}
 
@@ -354,7 +359,7 @@ func (dm *DatabaseManager) runPsqlRestorePod(endpoint, password string, config R
 
 	runErr := k8s.RunPod(k8s.PodSpec{
 		NamePrefix: "psql-restore",
-		Image:      "postgres:15-alpine",
+		Image:      cfg.Images.Postgres,
 		Command:    psqlArgs,
 		Env:        map[string]string{"PGPASSWORD": password},
 		Operation:  "restore",

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"rolewalkers/internal/config"
 	"rolewalkers/internal/db"
 	"slices"
 	"strings"
@@ -121,7 +122,7 @@ func (gm *GRPCManager) Forward(service, env string) error {
 
 	fmt.Printf("\nStarting gRPC port-forward:\n")
 	fmt.Printf("  Service:   %s\n", k8sService)
-	fmt.Printf("  Namespace: zenith\n")
+	fmt.Printf("  Namespace: %s\n", config.Get().Namespaces.App)
 	fmt.Printf("  Local:     localhost:%d\n", localPort)
 	fmt.Printf("  Remote:    %d\n", remotePort)
 	fmt.Println("\nPress Ctrl+C to stop...")
@@ -153,7 +154,7 @@ func (gm *GRPCManager) startPortForward(serviceName string, localPort, remotePor
 	cmd := exec.CommandContext(ctx, "kubectl", "port-forward",
 		fmt.Sprintf("svc/%s", serviceName),
 		fmt.Sprintf("%d:%d", localPort, remotePort),
-		"-n", "zenith",
+		"-n", config.Get().Namespaces.App,
 	)
 
 	cmd.Stdout = os.Stdout
@@ -173,12 +174,12 @@ func (gm *GRPCManager) startPortForward(serviceName string, localPort, remotePor
 func (gm *GRPCManager) CheckServiceExists(service, env string) error {
 	k8sService := gm.GetServiceName(service)
 
-	cmd := exec.Command("kubectl", "get", "svc", k8sService, "-n", "zenith", "-o", "name")
+	cmd := exec.Command("kubectl", "get", "svc", k8sService, "-n", config.Get().Namespaces.App, "-o", "name")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("service %s not found in namespace zenith: %s", k8sService, stderr.String())
+		return fmt.Errorf("service %s not found in namespace %s: %s", k8sService, config.Get().Namespaces.App, stderr.String())
 	}
 
 	return nil

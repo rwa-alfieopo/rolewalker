@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"rolewalkers/internal/config"
 	"rolewalkers/internal/db"
 )
 
@@ -243,7 +244,7 @@ func (cs *ConfigSync) SyncConfigToDB() (*SyncResult, error) {
 		if err != nil || account == nil {
 			// Create the account
 			accountName := cs.deriveAccountName(p.Name)
-			ssoRegion := cmp.Or(p.SSORegion, "eu-west-2")
+			ssoRegion := cmp.Or(p.SSORegion, config.Get().Region)
 
 			if err := cs.dbRepo.AddAWSAccount(p.SSOAccountID, accountName, p.SSOStartURL, ssoRegion, "Imported from AWS config"); err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("%s: failed to create account: %v", p.Name, err))
@@ -287,7 +288,7 @@ func (cs *ConfigSync) SyncConfigToDB() (*SyncResult, error) {
 
 		// Create new role
 		roleName := cmp.Or(p.SSORoleName, "Role")
-		region := cmp.Or(p.Region, "eu-west-2")
+		region := cmp.Or(p.Region, config.Get().Region)
 
 		if err := cs.dbRepo.AddAWSRole(account.ID, roleName, p.RoleARN, p.Name, region, "Imported from AWS config"); err != nil {
 			// String matching is necessary here because go-sqlite3 does not expose

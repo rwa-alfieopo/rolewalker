@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"rolewalkers/internal/config"
 	"rolewalkers/internal/db"
 
 	"github.com/getlantern/systray"
@@ -164,7 +165,7 @@ func (a *app) refreshLabels() {
 	}
 
 	// Namespace items
-	namespaces := []string{"zenith", "tunnel-access", "default", "kube-system"}
+	namespaces := config.Get().Namespaces.QuickSwitch
 	for i, item := range a.nsItems {
 		if i < len(namespaces) {
 			label := "  " + namespaces[i]
@@ -263,7 +264,7 @@ func (a *app) addKubeSection() {
 	mNSHeader := systray.AddMenuItem("Namespaces", "")
 	mNSHeader.Disable()
 
-	namespaces := []string{"zenith", "tunnel-access", "default", "kube-system"}
+	namespaces := config.Get().Namespaces.QuickSwitch
 
 	for _, ns := range namespaces {
 		namespace := ns

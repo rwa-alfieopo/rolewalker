@@ -2,6 +2,7 @@ package aws
 
 import (
 	"fmt"
+	"rolewalkers/internal/config"
 	"rolewalkers/internal/k8s"
 	"strconv"
 	"strings"
@@ -26,37 +27,34 @@ func NewRedisManagerWithDeps(km *KubeManager, ssm *SSMManager, ps *ProfileSwitch
 // Connect spawns an interactive redis-cli pod to connect to the Redis cluster
 func (rm *RedisManager) Connect(env string) error {
 	env = strings.ToLower(env)
+	cfg := config.Get()
 
-	// Switch kubectl context to the environment
 	fmt.Printf("Switching kubectl context to %s...\n", env)
 	if err := rm.kubeManager.SwitchContextForEnvWithProfile(env, rm.profileSwitcher); err != nil {
 		return fmt.Errorf("failed to switch kubectl context: %w", err)
 	}
 
-	// Get Redis endpoint from SSM
 	fmt.Println("Fetching Redis endpoint...")
-	endpointPath := fmt.Sprintf("/%s/zenith/redis/cluster-endpoint", env)
+	endpointPath := cfg.SSMPath(env, "redis/cluster-endpoint")
 	endpoint, err := rm.ssmManager.GetParameter(endpointPath)
 	if err != nil {
 		return fmt.Errorf("failed to get Redis endpoint: %w", err)
 	}
 
-	// Get Redis password from SSM
 	fmt.Println("Fetching Redis credentials...")
-	passwordPath := fmt.Sprintf("/%s/zenith/redis/zenithmaster-password", env)
+	passwordPath := cfg.SSMPath(env, fmt.Sprintf("redis/%s-password", cfg.Database.RedisUser))
 	password, err := rm.ssmManager.GetParameter(passwordPath)
 	if err != nil {
 		return fmt.Errorf("failed to get Redis password: %w", err)
 	}
 
-	// Parse endpoint to extract host (remove port if present)
 	host := parseRedisHost(endpoint)
 
 	fmt.Printf("\nConnecting to Redis:\n")
 	fmt.Printf("  Environment: %s\n", env)
 	fmt.Printf("  Host:        %s\n", host)
-	fmt.Printf("  Port:        6379\n")
-	fmt.Printf("  User:        zenithmaster\n")
+	fmt.Printf("  Port:        %d\n", cfg.Database.RedisPort)
+	fmt.Printf("  User:        %s\n", cfg.Database.RedisUser)
 	fmt.Println()
 
 	return rm.runRedisPod(host, password)
@@ -77,19 +75,17 @@ func parseRedisHost(endpoint string) string {
 
 // runRedisPod spawns an interactive redis-cli pod
 func (rm *RedisManager) runRedisPod(host, password string) error {
-	fmt.Println("Creating Redis CLI pod...")
-	fmt.Println("Status: Pulling image redis:7-alpine...")
-	fmt.Println("Status: Starting container...")
-	fmt.Println("Status: Connecting to Redis cluster...")
-	fmt.Println("\nStarting interactive redis-cli session (cluster mode)...")
+	cfg := config.Get()
+	fmt.Println("Starting interactive redis-cli session (cluster mode)...")
 	fmt.Println("(Type 'quit' or Ctrl+D to exit)")
 	fmt.Println()
 
+	port := fmt.Sprintf("%d", cfg.Database.RedisPort)
 	return k8s.RunPod(k8s.PodSpec{
 		NamePrefix:  "redis-temp",
-		Image:       "redis:7-alpine",
+		Image:       cfg.Images.Redis,
 		Interactive: true,
-		Command:     []string{"redis-cli", "-h", host, "-p", "6379", "-c", "--tls", "--user", "zenithmaster"},
+		Command:     []string{"redis-cli", "-h", host, "-p", port, "-c", "--tls", "--user", cfg.Database.RedisUser},
 		Env:         map[string]string{"REDISCLI_AUTH": password},
 	})
 }

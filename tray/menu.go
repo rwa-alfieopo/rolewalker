@@ -2,17 +2,18 @@ package tray
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strings"
+	"time"
 
 	"rolewalkers/aws"
 
 	"github.com/getlantern/systray"
 )
 
-// buildMenu rebuilds the entire tray menu. Called on init and refresh.
-// systray doesn't support removing items, so we build once and update
-// the tray title on subsequent calls.
+// buildMenu is called periodically to refresh the tray title.
+// systray doesn't support removing/rebuilding items, so only the title updates.
 func (a *app) buildMenu() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -28,12 +29,10 @@ func (a *app) buildMenu() {
 }
 
 // buildInitialMenu is called once during onReady to create the menu structure.
-// We use a goroutine-per-item pattern for click handling.
 func (a *app) buildInitialMenu() {
 	active := a.cm.GetActiveProfile()
 	region := a.ps.GetDefaultRegion()
 
-	// --- Header: current context ---
 	title := fmt.Sprintf("☁ %s", active)
 	if region != "" {
 		title += fmt.Sprintf(" (%s)", region)
@@ -46,7 +45,6 @@ func (a *app) buildInitialMenu() {
 	// Kube context
 	kubeCtx := "(none)"
 	if ctx, err := a.km.GetCurrentContext(); err == nil && ctx != "" {
-		// Shorten ARN-style names
 		if strings.Contains(ctx, "/") {
 			parts := strings.Split(ctx, "/")
 			ctx = parts[len(parts)-1]
@@ -90,29 +88,12 @@ func (a *app) buildInitialMenu() {
 	}()
 }
 
-// addProfileItems adds a menu item per profile with SSO status.
+// addProfileItems adds a menu item per profile with SSO status and session time.
 func (a *app) addProfileItems(profiles []aws.Profile, active string) {
 	for _, p := range profiles {
 		profile := p // capture for goroutine
 
-		label := profile.Name
-		if profile.IsActive {
-			label = "✓ " + label
-		} else {
-			label = "  " + label
-		}
-
-		if profile.IsSSO && a.sm != nil {
-			if a.sm.IsLoggedIn(profile.Name) {
-				label += "  (SSO ✓)"
-			} else {
-				label += "  (SSO ✗)"
-			}
-		}
-
-		if profile.Region != "" {
-			label += "  " + profile.Region
-		}
+		label := a.formatProfileLabel(profile)
 
 		item := systray.AddMenuItem(label, fmt.Sprintf("Switch to %s", profile.Name))
 
@@ -125,15 +106,76 @@ func (a *app) addProfileItems(profiles []aws.Profile, active string) {
 	}
 }
 
+// formatProfileLabel builds the display label for a profile menu item.
+func (a *app) formatProfileLabel(profile aws.Profile) string {
+	label := profile.Name
+	if profile.IsActive {
+		label = "✓ " + label
+	} else {
+		label = "  " + label
+	}
+
+	if profile.IsSSO && a.sm != nil {
+		if a.sm.IsLoggedIn(profile.Name) {
+			remaining := a.getSessionTimeLeft(profile.Name)
+			if remaining != "" {
+				label += fmt.Sprintf("  (SSO ✓ %s)", remaining)
+			} else {
+				label += "  (SSO ✓)"
+			}
+		} else {
+			label += "  (SSO ✗ expired)"
+		}
+	}
+
+	if profile.Region != "" {
+		label += "  " + profile.Region
+	}
+
+	return label
+}
+
+// getSessionTimeLeft returns a human-readable string of time remaining
+// on the SSO session, e.g. "2h 15m", "45m", "< 1m".
+func (a *app) getSessionTimeLeft(profileName string) string {
+	if a.sm == nil {
+		return ""
+	}
+
+	expiry, err := a.sm.GetCredentialExpiry(profileName)
+	if err != nil || expiry == nil {
+		return ""
+	}
+
+	remaining := time.Until(*expiry)
+	if remaining <= 0 {
+		return "expired"
+	}
+
+	hours := int(math.Floor(remaining.Hours()))
+	minutes := int(math.Floor(remaining.Minutes())) % 60
+
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm left", hours, minutes)
+	}
+	if minutes > 0 {
+		return fmt.Sprintf("%dm left", minutes)
+	}
+	return "< 1m left"
+}
+
 // switchProfile handles switching to a profile from the tray.
+// Only triggers SSO login if the session is actually expired.
 func (a *app) switchProfile(profile aws.Profile) {
-	// If SSO and not logged in, login first
-	if profile.IsSSO && a.sm != nil && !a.sm.IsLoggedIn(profile.Name) {
-		fmt.Fprintf(os.Stderr, "Logging in to %s...\n", profile.Name)
+	needsLogin := profile.IsSSO && a.sm != nil && !a.sm.IsLoggedIn(profile.Name)
+
+	if needsLogin {
+		fmt.Fprintf(os.Stderr, "SSO session expired for %s, logging in...\n", profile.Name)
 		if err := a.sm.Login(profile.Name); err != nil {
 			fmt.Fprintf(os.Stderr, "SSO login failed for %s: %v\n", profile.Name, err)
 			return
 		}
+		fmt.Fprintf(os.Stderr, "SSO login successful for %s\n", profile.Name)
 	}
 
 	if err := a.ps.SwitchProfile(profile.Name); err != nil {
@@ -143,7 +185,6 @@ func (a *app) switchProfile(profile aws.Profile) {
 
 	// Switch kube context
 	if err := a.km.SwitchContextForEnv(profile.Name); err != nil {
-		// Non-fatal — profile switch succeeded
 		fmt.Fprintf(os.Stderr, "Kube context switch failed: %v\n", err)
 	}
 

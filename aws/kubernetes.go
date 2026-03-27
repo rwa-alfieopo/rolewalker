@@ -405,7 +405,7 @@ func (km *KubeManager) getProfileNameForEnv(env string) string {
 		"stage":   "zenith-staging",
 		"preprod": "zenith-preprod",
 		"sit":     "zenith-sit",
-		"trg":     "zenith-trg",
+		"trg":     "zenith-dev", // TRG shares the dev account
 	}
 
 	envName := extractEnvName(env)

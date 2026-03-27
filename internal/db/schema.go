@@ -84,6 +84,7 @@ func (db *DB) migrate() error {
 		{9, "create_aws_roles", migrateV9CreateAWSRoles},
 		{10, "create_user_sessions", migrateV10CreateUserSessions},
 		{11, "add_command_db_port_mappings", migrateV11AddCommandDBPortMappings},
+		{12, "fix_shared_account_envs", migrateV12FixSharedAccountEnvs},
 	}
 
 	for _, m := range migrations {

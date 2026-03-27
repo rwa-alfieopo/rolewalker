@@ -360,3 +360,14 @@ func migrateV11AddCommandDBPortMappings(db *DB) error {
 
 	return nil
 }
+
+// migrateV12FixSharedAccountEnvs corrects environments that share an AWS
+// account with another environment. TRG uses the same account as DEV
+// (611914608941) so its aws_profile should be zenith-dev, not zenith-trg.
+func migrateV12FixSharedAccountEnvs(db *DB) error {
+	_, err := db.Exec(`
+		UPDATE environments SET aws_profile = 'zenith-dev'
+		WHERE name = 'trg' AND aws_profile = 'zenith-trg'
+	`)
+	return err
+}

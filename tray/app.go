@@ -12,27 +12,28 @@ import (
 	"github.com/getlantern/systray"
 )
 
-// profileItem pairs a systray menu item with its profile for dynamic updates.
-type profileItem struct {
-	item    *systray.MenuItem
-	profile aws.Profile
+// envItem pairs a systray menu item with its environment for dynamic updates.
+type envItem struct {
+	item *systray.MenuItem
+	env  db.Environment
 }
 
 // app holds the tray application state.
 type app struct {
-	cm  *aws.ConfigManager
-	sm  *aws.SSOManager
-	ps  *aws.ProfileSwitcher
-	km  *aws.KubeManager
-	db  *db.DB
-	mu  sync.Mutex
-	quit chan struct{}
+	cm     *aws.ConfigManager
+	sm     *aws.SSOManager
+	ps     *aws.ProfileSwitcher
+	km     *aws.KubeManager
+	database *db.DB
+	dbRepo *db.ConfigRepository
+	mu     sync.Mutex
+	quit   chan struct{}
 
 	// Dynamic menu items that get refreshed
-	mStatus   *systray.MenuItem
-	mKube     *systray.MenuItem
-	profItems []profileItem
-	nsItems   []*systray.MenuItem
+	mStatus  *systray.MenuItem
+	mKube    *systray.MenuItem
+	envItems []envItem
+	nsItems  []*systray.MenuItem
 }
 
 // Run starts the system tray application.
@@ -43,10 +44,8 @@ func Run() {
 func onReady() {
 	a := &app{quit: make(chan struct{})}
 
-	// Write our own PID so 'rw tray status/stop' can find us
 	WritePIDFile(os.Getpid())
 
-	// Initialise core managers
 	cm, err := aws.NewConfigManager()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to init config manager: %v\n", err)
@@ -63,11 +62,14 @@ func onReady() {
 	}
 
 	a.ps = aws.NewProfileSwitcher(cm)
-	a.km = aws.NewKubeManager()
 
 	database, err := db.NewDB()
 	if err == nil {
-		a.db = database
+		a.database = database
+		a.dbRepo = db.NewConfigRepository(database)
+		a.km = aws.NewKubeManagerWithRepo(a.dbRepo)
+	} else {
+		a.km = aws.NewKubeManager()
 	}
 
 	systray.SetIcon(iconData)
@@ -75,7 +77,7 @@ func onReady() {
 
 	a.buildInitialMenu()
 
-	// Refresh every 15 seconds to update SSO status, time remaining, active profile
+	// Refresh every 15 seconds
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()

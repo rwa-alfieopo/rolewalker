@@ -178,6 +178,8 @@ func (c *CLI) Run(args []string) error {
 		return c.set(cmdArgs)
 	case "config", "cfg":
 		return c.config(cmdArgs)
+	case "setup":
+		return c.setup(cmdArgs)
 	case "web", "w":
 		return fmt.Errorf("'rw web' has been removed. Use 'rw tray start' for the system tray app instead")
 	case "tray":

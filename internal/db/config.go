@@ -638,3 +638,15 @@ func (r *ConfigRepository) GetAllAWSRoles() ([]AWSRole, error) {
 
 	return roles, rows.Err()
 }
+
+// AddEnvironment adds a new environment to the database.
+func (r *ConfigRepository) AddEnvironment(name, displayName, region, awsProfile, clusterName string) error {
+	ctx, cancel := context.WithTimeout(r.context(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO environments (name, display_name, region, aws_profile, cluster_name)
+		VALUES (?, ?, ?, ?, ?)
+	`, name, displayName, region, awsProfile, clusterName)
+	return err
+}

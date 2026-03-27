@@ -106,6 +106,7 @@ Configuration:
     --shell <shell>         Override shell detection
 
 Utilities:
+  setup                   Auto-discover accounts, roles, and EKS clusters via SSO
   keygen, kg [count]      Generate cryptographically secure API keys
   help, -h                Show this help message
   example, ex             Show usage examples

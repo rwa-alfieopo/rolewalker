@@ -326,3 +326,37 @@ func migrateV10CreateUserSessions(db *DB) error {
 	`)
 	return err
 }
+
+// migrateV11AddCommandDBPortMappings adds a "db-command" service with separate
+// port mappings so prod-like environments can tunnel to both query and command
+// Aurora clusters simultaneously.
+func migrateV11AddCommandDBPortMappings(db *DB) error {
+	// Add db-command as a separate service
+	_, err := db.Exec(`
+		INSERT OR IGNORE INTO services (name, display_name, service_type, default_remote_port, description)
+		VALUES ('db-command', 'Database (Command)', 'postgresql', 5432, 'PostgreSQL command database (OLTP/write)')
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Port mappings offset by +1 from the query DB ports
+	commandPorts := map[string]int{
+		"snd": 5450, "dev": 5451, "sit": 5452, "preprod": 5453,
+		"trg": 5454, "prod": 5455, "qa": 5456, "stage": 5457,
+	}
+
+	for envName, localPort := range commandPorts {
+		_, err := db.Exec(`
+			INSERT OR IGNORE INTO port_mappings (service_id, environment_id, local_port, remote_port)
+			SELECT s.id, e.id, ?, s.default_remote_port
+			FROM services s, environments e
+			WHERE s.name = 'db-command' AND e.name = ?
+		`, localPort, envName)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}

@@ -157,6 +157,9 @@ func (tm *TunnelManager) getRemoteHost(service, env string, config TunnelConfig)
 		nodeType := cmp.Or(config.NodeType, "read")
 		dbType := cmp.Or(config.DBType, "query")
 		return tm.ssmManager.GetDatabaseEndpoint(env, nodeType, dbType)
+	case "db-command":
+		nodeType := cmp.Or(config.NodeType, "write")
+		return tm.ssmManager.GetDatabaseEndpoint(env, nodeType, "command")
 	case "grpc":
 		// gRPC uses direct service forwarding, not SSM
 		return "", nil

@@ -83,6 +83,7 @@ func (db *DB) migrate() error {
 		{8, "create_aws_accounts", migrateV8CreateAWSAccounts},
 		{9, "create_aws_roles", migrateV9CreateAWSRoles},
 		{10, "create_user_sessions", migrateV10CreateUserSessions},
+		{11, "add_command_db_port_mappings", migrateV11AddCommandDBPortMappings},
 	}
 
 	for _, m := range migrations {

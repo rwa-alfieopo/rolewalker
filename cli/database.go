@@ -9,7 +9,7 @@ import (
 
 func (c *CLI) db(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rw db <connect|backup|restore> <env> [options]\n\nSubcommands:\n  connect <env>  Connect to database via interactive psql\n  backup <env>   Backup database to local file\n  restore <env>  Restore database from local file\n\nConnect flags:\n  --write, -w    Connect to write node (default: read)\n  --command, -c  Connect to command database (default: query)\n\nBackup flags:\n  --output, -o <file>  Output file path (required)\n  --schema-only        Backup schema only, no data\n\nRestore flags:\n  --input, -i <file>   Input file path (required)\n  --clean              Drop objects before recreating\n  --yes, -y            Skip confirmation prompt\n\nExamples:\n  rw db connect dev              # Connect to dev query database (read node)\n  rw db connect prod --write     # Connect to prod write node\n  rw db backup dev --output ./backup.sql\n  rw db restore dev --input ./backup.sql --clean --yes")
+		return fmt.Errorf("usage: rw db <connect|backup|restore> <env> [options]\n\nSubcommands:\n  connect <env>  Connect to database via interactive psql\n  backup <env>   Backup database to local file\n  restore <env>  Restore database from local file\n\nConnect flags:\n  --write, -w       Connect to write node (default: read)\n  --command, -c     Connect to command database (default: query)\n  --readonly, --ro  Connect as read-only user (IAM auth)\n  --admin           Connect as admin user (IAM auth)\n  --iam             Force IAM authentication with master user\n\nBackup flags:\n  --output, -o <file>  Output file path (required)\n  --schema-only        Backup schema only, no data\n\nRestore flags:\n  --input, -i <file>   Input file path (required)\n  --clean              Drop objects before recreating\n  --yes, -y            Skip confirmation prompt\n\nExamples:\n  rw db connect dev              # Connect as zenithmaster (password)\n  rw db connect dev --readonly   # Connect as zenith-ro (IAM auth)\n  rw db connect prod --admin     # Connect as zenith-admin (IAM auth)\n  rw db connect prod --write --command  # Write node, command DB\n  rw db backup dev --output ./backup.sql\n  rw db restore dev --input ./backup.sql --clean --yes")
 	}
 
 	subCmd := args[0]
@@ -39,6 +39,15 @@ func (c *CLI) dbConnect(args []string) error {
 			config.NodeType = "write"
 		case "--command", "-c":
 			config.DBType = "command"
+		case "--readonly", "--ro":
+			config.Role = "readonly"
+			config.UseIAM = true
+		case "--admin":
+			config.Role = "admin"
+			config.UseIAM = true
+			config.NodeType = "write" // admin typically needs write access
+		case "--iam":
+			config.UseIAM = true
 		default:
 			if !strings.HasPrefix(arg, "-") {
 				config.Environment = arg

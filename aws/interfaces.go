@@ -87,6 +87,7 @@ type RedisManagerI interface {
 type MSKManagerI interface {
 	StartUI(env string, localPort int) error
 	StopUI(env string) error
+	ConnectCLI(env string) error
 }
 
 // MaintenanceManagerI handles Fastly maintenance mode.

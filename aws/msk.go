@@ -187,3 +187,68 @@ func (mm *MSKManager) startPortForward(podName string, localPort int) error {
 
 	return err
 }
+
+// ConnectCLI spawns an interactive Kafka CLI pod with IAM authentication
+func (mm *MSKManager) ConnectCLI(env string) error {
+	env = strings.ToLower(env)
+
+	// Switch kubectl context to the environment
+	fmt.Printf("Switching kubectl context to %s...\n", env)
+	if err := mm.kubeManager.SwitchContextForEnvWithProfile(env, mm.profileSwitcher); err != nil {
+		return fmt.Errorf("failed to switch kubectl context: %w", err)
+	}
+
+	// Get MSK brokers from SSM
+	fmt.Println("Fetching MSK brokers endpoint...")
+	brokersPath := fmt.Sprintf("/%s/zenith/msk/brokers-iam-endpoint", env)
+	brokers, err := mm.ssmManager.GetParameter(brokersPath)
+	if err != nil {
+		return fmt.Errorf("failed to get MSK brokers: %w", err)
+	}
+
+	fmt.Printf("\nStarting Kafka CLI session:\n")
+	fmt.Printf("  Environment: %s\n", env)
+	fmt.Printf("  Brokers:     %s\n", utils.TruncateString(brokers, 60))
+	fmt.Printf("  Auth:        IAM (SASL_SSL)\n")
+	fmt.Println("\nUseful commands inside the pod:")
+	fmt.Println("  kafka-topics --bootstrap-server $BOOTSTRAP_SERVERS --command-config /tmp/client.properties --list")
+	fmt.Println("  kafka-console-consumer --bootstrap-server $BOOTSTRAP_SERVERS --consumer.config /tmp/client.properties --topic <topic>")
+	fmt.Println()
+
+	// Build the init command that downloads the IAM auth JAR and creates client.properties
+	initScript := fmt.Sprintf(`
+set -e
+BOOTSTRAP_SERVERS="%s"
+export BOOTSTRAP_SERVERS
+
+# Download AWS MSK IAM auth library
+IAM_JAR_URL="https://github.com/aws/aws-msk-iam-auth/releases/download/v2.3.4/aws-msk-iam-auth-2.3.4-all.jar"
+echo "Downloading MSK IAM auth library..."
+wget -q -O /tmp/aws-msk-iam-auth.jar "$IAM_JAR_URL" 2>/dev/null || \
+  curl -sL -o /tmp/aws-msk-iam-auth.jar "$IAM_JAR_URL"
+
+# Create client.properties for IAM auth
+cat > /tmp/client.properties << 'EOF'
+security.protocol=SASL_SSL
+sasl.mechanism=AWS_MSK_IAM
+sasl.jaas.config=software.amazon.msk.auth.iam.IAMLoginModule required;
+sasl.client.callback.handler.class=software.amazon.msk.auth.iam.IAMClientCallbackHandler
+EOF
+
+export CLASSPATH="/tmp/aws-msk-iam-auth.jar"
+echo "Ready. BOOTSTRAP_SERVERS=$BOOTSTRAP_SERVERS"
+echo "Use --command-config /tmp/client.properties with kafka-* commands"
+exec /bin/bash
+`, brokers)
+
+	return k8s.RunPod(k8s.PodSpec{
+		NamePrefix:  "msk-cli",
+		Image:       "confluentinc/cp-kafka:7.7.6",
+		Namespace:   TunnelAccessNamespace,
+		Interactive: true,
+		Command:     []string{"/bin/bash", "-c", initScript},
+		Env: map[string]string{
+			"BOOTSTRAP_SERVERS": brokers,
+		},
+	})
+}

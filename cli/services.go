@@ -64,7 +64,7 @@ func (c *CLI) redis(args []string) error {
 
 func (c *CLI) msk(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: rw msk <ui|stop> <env>\n\nSubcommands:\n  ui <env>    Start Kafka UI for MSK cluster\n  stop <env>  Stop the Kafka UI pod\n\nExamples:\n  rw msk ui dev              # Start Kafka UI on localhost:8080\n  rw msk ui prod --port 9090 # Start on custom port\n  rw msk stop dev            # Stop the Kafka UI pod")
+		return fmt.Errorf("usage: rw msk <ui|connect|stop> <env>\n\nSubcommands:\n  ui <env>      Start Kafka UI for MSK cluster\n  connect <env> Start interactive Kafka CLI session (IAM auth)\n  stop <env>    Stop the Kafka UI pod\n\nExamples:\n  rw msk ui dev              # Start Kafka UI on localhost:8080\n  rw msk ui prod --port 9090 # Start on custom port\n  rw msk connect dev         # Interactive Kafka CLI\n  rw msk stop dev            # Stop the Kafka UI pod")
 	}
 
 	subCmd := args[0]
@@ -73,13 +73,15 @@ func (c *CLI) msk(args []string) error {
 	switch subCmd {
 	case "ui":
 		return c.mskUI(subArgs)
+	case "connect", "cli":
+		return c.mskConnect(subArgs)
 	case "stop":
 		if len(subArgs) < 1 {
 			return fmt.Errorf("usage: rw msk stop <env>\n\nEnvironments: snd, dev, sit, preprod, trg, prod, qa, stage")
 		}
 		return c.mskManager.StopUI(subArgs[0])
 	default:
-		return fmt.Errorf("unknown msk subcommand: %s\nUse: ui, stop", subCmd)
+		return fmt.Errorf("unknown msk subcommand: %s\nUse: ui, connect, stop", subCmd)
 	}
 }
 
@@ -101,4 +103,19 @@ func (c *CLI) mskUI(args []string) error {
 	}
 
 	return c.mskManager.StartUI(env, port)
+}
+
+func (c *CLI) mskConnect(args []string) error {
+	var env string
+	if len(args) >= 1 {
+		env = args[0]
+	} else {
+		picked, err := c.pickEnvironment()
+		if err != nil {
+			return err
+		}
+		env = picked
+	}
+
+	return c.mskManager.ConnectCLI(env)
 }
